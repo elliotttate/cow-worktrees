@@ -1,0 +1,36 @@
+diff --git a/crates/riftri-core/src/worktree.rs b/crates/riftri-core/src/worktree.rs
+index 9849035..656078c 100644
+--- a/crates/riftri-core/src/worktree.rs
++++ b/crates/riftri-core/src/worktree.rs
+@@ -6114,6 +6114,15 @@ fn run_post_checkout_hook(
+     destination: &Path,
+     commit: &ObjectId,
+ ) -> PostCheckoutOutcome {
++    // Windows cannot start a `#!/bin/sh` hook directly; Git for Windows runs
++    // hooks through its own shell, so let Git run it.
++    #[cfg(windows)]
++    let mut command = {
++        let mut command = Command::new("git");
++        command.args(["hook", "run", "--ignore-missing", "post-checkout", "--"]);
++        command
++    };
++    #[cfg(not(windows))]
+     let mut command = Command::new(hook);
+     command
+         .current_dir(destination)
+diff --git a/crates/riftri-git/src/lib.rs b/crates/riftri-git/src/lib.rs
+index 33425b4..a338d97 100644
+--- a/crates/riftri-git/src/lib.rs
++++ b/crates/riftri-git/src/lib.rs
+@@ -1912,6 +1912,11 @@ impl Git {
+         ] {
+             prefix.extend([OsString::from("-c"), OsString::from(setting)]);
+         }
++        // Git for Windows refuses paths over MAX_PATH unless core.longPaths is
++        // set, and the isolated build directory alone adds ~120 characters.
++        // The setting changes only how paths are opened, never the bytes written.
++        #[cfg(windows)]
++        prefix.extend([OsString::from("-c"), OsString::from("core.longpaths=true")]);
+         for (key, value) in configuration {
+             let mut setting = OsString::from(format!("{key}="));
+             setting.push(os_string_from_git(

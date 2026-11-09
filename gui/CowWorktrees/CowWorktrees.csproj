@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>CowWorktrees</RootNamespace>
+    <AssemblyName>CowWorktrees</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <!-- Unpackaged and fully self-contained: the .NET 8 runtime and the Windows App SDK runtime are both
+         copied next to the exe, so it runs on a Windows 10/11 x64 PC with nothing installed, straight from
+         the build or publish folder (no MSIX, no installer, no bootstrapper). -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <!-- No trimming: WinUI's XAML type info, x:Bind and the Task Scheduler COM calls (dynamic) all use reflection. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Version>1.0.0</Version>
+    <Product>CoW Worktrees</Product>
+    <AssemblyTitle>CoW Worktrees</AssemblyTitle>
+    <Description>Watch and manage copy-on-write Git worktrees made by cow-worktrees.</Description>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\AppIcon.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7705" />
+  </ItemGroup>
+
+  <!-- `dotnet publish` of an unpackaged WinUI app leaves out the app's own resources.pri and .xbf files (the
+       compiled XAML), and the published exe then dies in InitializeComponent. Publish them with the rest. -->
+  <Target Name="PublishAppXamlResources" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <_AppXamlResource Include="$(OutDir)$(TargetName).pri;$(OutDir)*.xbf" />
+      <ResolvedFileToPublish Include="@(_AppXamlResource)" RelativePath="%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+</Project>

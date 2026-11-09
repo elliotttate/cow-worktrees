@@ -1,0 +1,7 @@
+dist/
+gui/**/bin/
+gui/**/obj/
+gui/publish/
+gui/.vs/
+*.user
+__pycache__/
