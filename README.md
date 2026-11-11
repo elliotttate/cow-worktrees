@@ -15,8 +15,13 @@ Measured on an 87 GB game repository (119k files, 56k of them in Git LFS):
 
 ![CoW Worktrees: every worktree of a project, and a summary of the selected one](gui/docs/worktrees.png)
 
-The app lists every worktree of a project with its branch, uncommitted work and unpushed commits. More
-pictures are under [The app](#the-app).
+The app's main window: every worktree of a project with its branch, uncommitted work and unpushed
+commits, and a summary of the selected one.
+
+![Disk space: what the folders really take on the drive](gui/docs/base.png)
+
+Its Disk space view: Explorer counts every worktree in full, here 19 GB of folders; on the drive they
+take 9.6 GB, because a worktree shares every file it has not changed with the base.
 
 ## How it works
 
@@ -245,10 +250,8 @@ It says "repository" where the scripts and these pages say "pool".
 
 | | |
 |:-:|:-:|
-| ![The Changes view](gui/docs/changes.png) | ![Disk space on the Base tab](gui/docs/base.png) |
-| **Changes**: every line a worktree changed, in colour | **Disk space**: what the folders really take on the drive |
-| ![The walkthrough](gui/docs/walkthrough.png) | ![Repository settings](gui/docs/settings.png) |
-| **Getting started**: from nothing to a working repository | **Repository settings**: what is connected, with a switch for each |
+| ![The Changes view](gui/docs/changes.png) | ![Repository settings](gui/docs/settings.png) |
+| **Changes**: every line a worktree changed, in colour | **Repository settings**: what is connected, with a switch for each |
 
 It is self-contained: nothing else has to be installed to run it. Setup, removal and every worktree
 action go through the scripts above, and the app shows the command line of each one. Full description,
