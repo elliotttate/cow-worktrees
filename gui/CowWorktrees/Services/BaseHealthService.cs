@@ -85,7 +85,7 @@ public sealed class BaseHealthService
             string? refSha = rr.Ok ? rr.StdOut.Trim() : null;
             if (refSha == null)
             {
-                snap.Items.Add(new HealthItem("Tracked ref", trackedRef, $"not a commit in {repo} (fetch it, or fix baseRef in cow-config.json)", Severity.Error));
+                snap.Items.Add(new HealthItem("Tracked ref", trackedRef, $"not a commit in {repo}. Fetch it, or choose another branch under \"New worktrees start from\" in Repository settings.", Severity.Error));
             }
             else if (baseSha == null)
             {
@@ -104,7 +104,7 @@ public sealed class BaseHealthService
                     string value = onlyBase == 0
                         ? $"base is {onlyRef} commit{(onlyRef == 1 ? "" : "s")} behind {trackedRef}"
                         : $"base and {trackedRef} have diverged ({onlyBase} / {onlyRef})";
-                    snap.Items.Add(new HealthItem("Tracked ref", value, $"{trackedRef} is {refSha[..9]}, {fetchNote}. -RefreshBase -Fetch -Build moves the base.", Severity.Warning));
+                    snap.Items.Add(new HealthItem("Tracked ref", value, $"{trackedRef} is {refSha[..9]}, {fetchNote}. Refresh base moves the base there.", Severity.Warning));
                 }
                 else
                 {
@@ -137,7 +137,7 @@ public sealed class BaseHealthService
             else if (config.Build == null && !snap.BuildRunning)
             {
                 snap.Items.Add(new HealthItem("Build output", "no build configured",
-                    "cow-config.json has no \"build\" section, so the base is not built and -RefreshBase -Build only moves it", Severity.Info));
+                    "No build is set up, so Refresh base only moves the base. To build it once a day and start worktrees with build output, turn on Faster first builds in Repository settings.", Severity.Info));
             }
             else
             {
@@ -307,7 +307,7 @@ public sealed class BaseHealthService
         // Through dynamic, a missing task or folder arrives as FileNotFoundException / DirectoryNotFoundException, not COMException.
         catch (Exception ex) when ((uint)ex.HResult is 0x80070002 or 0x80070003)
         {
-            return new HealthItem("Scheduled refresh", "not registered", $"{taskPath} does not exist; setup.ps1 can register a daily refresh of the base", Severity.Info);
+            return new HealthItem("Scheduled refresh", "not registered", $"{taskPath} does not exist. Turn on Daily upkeep in Repository settings to refresh the base every day.", Severity.Info);
         }
         catch (Exception ex)
         {
