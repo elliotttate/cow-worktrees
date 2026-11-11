@@ -10,3 +10,5 @@
 *.patch text eol=lf
 *.ico binary
 *.png binary
+*.iss text eol=crlf
+*.yml text eol=lf

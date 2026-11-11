@@ -1,0 +1,85 @@
+# Pushing a tag v<x.y.z> builds that release and attaches it to a DRAFT release:
+#
+#   cow-worktrees-<x.y.z>.zip          the tool folder
+#   CowWorktrees-Setup-<x.y.z>.exe     the installer
+#
+# with the "## <x.y.z>" section of CHANGELOG.md as the notes. Nothing is public until someone looks the
+# draft over and presses Publish. The app's updater reads the latest published release and takes the
+# installer by exactly that file name, and compares its SHA-256 with the digest GitHub shows for the file.
+#
+# The tests are not run here: they need a ReFS Dev Drive. Run them on a PC before tagging.
+# To build again for the same tag, delete the draft release first.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version from the tag
+        id: version
+        shell: powershell
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ($env:TAG -notmatch '^v(\d+\.\d+\.\d+(-[0-9A-Za-z][0-9A-Za-z.]*)?)$') { throw "tag '$env:TAG' is not v<x.y.z>" }
+          "version=$($Matches[1])" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+
+      # Before the long build, so a release without notes fails in seconds.
+      - name: Release notes from CHANGELOG.md
+        shell: powershell
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $lines = @(Get-Content -LiteralPath CHANGELOG.md -Encoding UTF8)
+          $start = -1
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match ('^##\s+\[?v?' + [regex]::Escape($env:VERSION) + '\]?(\s|$)')) { $start = $i; break }
+          }
+          if ($start -lt 0) { throw "CHANGELOG.md has no '## $env:VERSION' section" }
+          $end = $lines.Count
+          for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^##\s') { $end = $i; break }
+          }
+          $notes = ''
+          if ($end -gt $start + 1) { $notes = ($lines[($start + 1)..($end - 1)] -join "`n").Trim() }
+          if (-not $notes) { throw "the '## $env:VERSION' section of CHANGELOG.md is empty" }
+          [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'release-notes.md'), $notes + "`n", (New-Object Text.UTF8Encoding $false))
+          $notes
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup -y --no-progress
+
+      - name: Build the zip and the installer
+        shell: powershell
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: .\release.ps1 -Version $env:VERSION
+
+      - name: Create the draft release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $releaseArgs = @('release', 'create', $env:TAG, "dist\cow-worktrees-$env:VERSION.zip", "dist\CowWorktrees-Setup-$env:VERSION.exe",
+            '--draft', '--verify-tag', '--title', "cow-worktrees $env:VERSION", '--notes-file', (Join-Path $env:RUNNER_TEMP 'release-notes.md'))
+          # A version with a suffix (1.2.0-rc1) must never become "latest", which is what the updater reads.
+          if ($env:VERSION -match '-') { $releaseArgs += '--prerelease' }
+          gh @releaseArgs
+          if ($LASTEXITCODE) { throw "gh release create failed ($LASTEXITCODE)" }
