@@ -16,10 +16,44 @@
   3. Creates the base worktree at <Root>\base on -BaseRef (a full checkout, once) and locks it.
   4. Writes <Root>\cow-config.json and registers the pool in %LOCALAPPDATA%\cow-worktrees\pools.json.
   5. Claude Code: merges WorktreeCreate/WorktreeRemove hooks and a PreToolUse guard into
-     .claude\settings.local.json of every checkout of the repository, and of the base (so clones get them).
+     .claude\settings.local.json of every checkout of the repository: the main one, its worktrees, the base
+     (so clones get them) and the worktrees already in the pool. A file that has them already is not written.
   6. Codex: writes a marked block into ~\.codex\AGENTS.md telling Codex agents to use the script.
   7. Schedules daily upkeep (prune + refresh the base) in Task Scheduler.
-  Running it again updates everything in place. uninstall.ps1 reverses steps 4-7.
+  uninstall.ps1 reverses steps 4-7.
+
+  Running it again updates everything in place, and changes only what is passed: -Name, -BaseRef,
+  -BranchPrefix, -PruneDays, -FallbackMinFreeGB and -ScheduleAt keep the value the pool already has when
+  they are left out (the defaults are for the first run). The build section works the same way, piece by
+  piece: -BuildCommand, -BuildPrepare and -BuildConfigs each replace their own part and leave the other
+  two (an empty -BuildPrepare '' or -BuildConfigs '' clears that part); -NoBuild removes the section.
+  -NoClaude, -NoCodex and -NoSchedule mean "without this piece": on a first run it is not added, and on a
+  later run it is also removed if it is there (the hooks from every checkout of the repository, the base
+  and the pool's worktrees included; the Codex block; the task). Leave the switch out to put it back.
+  The choices are recorded in cow-config.json:
+    "integrations": { "claude": true, "codex": true, "scheduleAt": "05:00" }   (scheduleAt null = no task)
+    "integrationRevision": 1                                                  (see scripts\CowIntegrations.ps1)
+
+  -CodexAgentsFile: the Codex instructions file. Default: the COW_CODEX_AGENTS_FILE environment variable
+  when set, else ~\.codex\AGENTS.md.
+
+  Files that are not only this tool's (settings.local.json, the Codex file, .git\info\exclude, and
+  cow-config.json and pools.json, which can be edited by hand) are read and written in the encoding they
+  have, with or without a byte order mark, so text outside ASCII in them stays what it was; see
+  scripts\CowIntegrations.ps1. A new settings.local.json or Codex file is UTF-8 without a byte order mark.
+
+.NOTES
+  Step titles: the lines that start with "==> ". The app shows them as a checklist while setup runs, so
+  they are an interface: do not reword one without changing the app, and print a step only when it does
+  something. In this order:
+    Checking prerequisites             always
+    Base worktree                      always
+    Pool config                        always
+    Claude Code hooks                  without -NoClaude; with it, only on a re-run that finds hooks to remove
+    Codex instructions                 without -NoCodex; with it, only on a re-run that finds the block to remove
+    Daily upkeep task                  without -NoSchedule; with it, only on a re-run that finds the task to remove
+    Building the base (warm clones)    with -BuildNow, when there is a build section
+    Done                               always (not reached when a step fails: the script exits 1 with "setup: <why>")
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param(
@@ -30,6 +64,7 @@ param(
     [string]$BuildCommand,
     [string[]]$BuildPrepare,
     [string[]]$BuildConfigs,
+    [switch]$NoBuild,
     [string]$BranchPrefix = 'worktree-',
     [int]$PruneDays = 7,
     [int]$FallbackMinFreeGB = 0,
@@ -38,7 +73,7 @@ param(
     [switch]$NoCodex,
     [switch]$NoSchedule,
     [switch]$BuildNow,
-    [string]$CodexAgentsFile = (Join-Path $env:USERPROFILE '.codex\AGENTS.md')
+    [string]$CodexAgentsFile
 )
 $ErrorActionPreference = 'Continue'
 $env:RIFTRI_BYPASS = '1'
@@ -46,9 +81,13 @@ $env:RIFTRI_BYPASS = '1'
 $BuildConfigs = @($BuildConfigs | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $scripts = Join-Path $PSScriptRoot 'scripts'
 . (Join-Path $scripts 'CowCommon.ps1')
+. (Join-Path $scripts 'CowIntegrations.ps1')
 function Step([string]$msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Note([string]$msg) { Write-Host "    $msg" }
 function Fail([string]$msg) { Write-Host "setup: $msg" -ForegroundColor Red; exit 1 }
+$CodexAgentsFile = Resolve-CowCodexFile $CodexAgentsFile
+# "Passed" and "left at its default" are different things on a re-run (see the description).
+$given = @{}; foreach ($k in 'BranchPrefix', 'PruneDays', 'ScheduleAt', 'BuildPrepare', 'BuildConfigs') { $given[$k] = $PSBoundParameters.ContainsKey($k) }
 
 # ---- 1. checks -----------------------------------------------------------------------------------------
 Step 'Checking prerequisites'
@@ -57,9 +96,21 @@ $v = [regex]::Match((git --version), '(\d+)\.(\d+)')
 if ([int]$v.Groups[1].Value -lt 2 -or ([int]$v.Groups[1].Value -eq 2 -and [int]$v.Groups[2].Value -lt 38)) { Fail "Git 2.38 or newer is needed (found $(git --version))" }
 $common = Get-CowCommonDir $Repo
 if (-not $common) { Fail "$Repo is not inside a Git repository" }
+if ($NoBuild -and ($BuildCommand -or $given.BuildPrepare -or $given.BuildConfigs)) { Fail '-NoBuild removes the build section; do not pass -BuildCommand, -BuildPrepare or -BuildConfigs with it' }
 $main = git -C $Repo rev-parse --path-format=absolute --git-common-dir | Split-Path -Parent
 $main = ConvertTo-CowFullPath $main
 $Root = ConvertTo-CowFullPath $Root
+# A config that is already there makes this a re-run: what is not passed keeps its value, and a -No* switch
+# removes its piece. (The file is read as it is, without Get-CowConfig's defaults.)
+$cfgFile = Join-Path $Root 'cow-config.json'
+$cfgWas = Read-CowText $cfgFile -NewWithBom   # a new one with a byte order mark: see Read-CowRegistry
+$old = if ($cfgWas.Text.Trim()) { $cfgWas.Text | ConvertFrom-Json } else { $null }
+if ($old) {
+    if (-not $Name -and $old.name) { $Name = [string]$old.name }
+    if (-not $BaseRef -and $old.baseRef) { $BaseRef = [string]$old.baseRef }
+    if (-not $given.BranchPrefix -and $null -ne $old.branchPrefix) { $BranchPrefix = [string]$old.branchPrefix }
+    if (-not $given.PruneDays -and $null -ne $old.pruneDays) { $PruneDays = [int]$old.pruneDays }
+}
 if (-not $Name) { $Name = Split-Path -Leaf $main }
 $Name = ($Name -replace '[^A-Za-z0-9._-]', '-')
 $drive = $Root.Substring(0, 1)
@@ -67,6 +118,18 @@ $vol = Get-Volume -DriveLetter $drive -ErrorAction SilentlyContinue
 if (-not $vol) { Fail "drive ${drive}: not found" }
 if ($vol.FileSystem -ne 'ReFS') { Fail "${drive}: is $($vol.FileSystem); the pool root must be on a ReFS volume (a Dev Drive) so files can be block-cloned. See README: Creating a Dev Drive." }
 if ($Root.StartsWith($main + '\', [StringComparison]::OrdinalIgnoreCase)) { Fail "-Root must not be inside the repository" }
+# The daily task's time: what was passed; else, on a re-run, the time the registered task has, or the one
+# recorded in the config when the task is gone; else the default. Checked here, before anything is changed.
+$taskAt = $null
+if (-not $NoSchedule) {
+    $at = $ScheduleAt
+    if ($old -and -not $given.ScheduleAt) {
+        $kept = Get-CowTaskTime $Name
+        if (-not $kept -and $old.integrations -and $old.integrations.scheduleAt) { $kept = [string]$old.integrations.scheduleAt }
+        if ($kept) { $at = $kept }
+    }
+    try { $taskAt = ([datetime]$at).ToString('HH:mm', [Globalization.CultureInfo]::InvariantCulture) } catch { Fail "-ScheduleAt '$at' is not a time of day (use HH:mm, for example 05:00)" }
+}
 Note "repository: $main"
 Note "pool root:  $Root (${drive}: ReFS, $([math]::Round($vol.SizeRemaining / 1GB)) GB free)"
 
@@ -104,7 +167,21 @@ if ($LASTEXITCODE) { Fail 'could not set extensions.worktreeConfig' }
 Step 'Base worktree'
 New-Item -ItemType Directory -Force -Path $Root | Out-Null
 $base = Join-Path $Root 'base'
-$registered = @(git -C $main worktree list --porcelain) -contains "worktree $($base.Replace('\', '/'))"
+$listing = @(git -C $main worktree list --porcelain)
+$baseLine = "worktree $($base.Replace('\', '/'))"
+$registered = $listing -contains $baseLine
+if ($registered) {
+    # A base whose first checkout was cut off (the PC went down, setup was stopped) is still registered, and
+    # still carries the lock Git itself puts on a worktree while it makes it ("initializing"). All it holds is
+    # part of the commit, so it is removed and made again. -f twice: one -f does not remove a locked worktree.
+    $block = @(); for ($i = [array]::IndexOf($listing, $baseLine) + 1; $i -lt $listing.Count -and $listing[$i]; $i++) { $block += $listing[$i] }
+    if ($block -contains 'locked initializing') {
+        Note "an earlier setup stopped while it was making $base; removing the partial copy and making it again"
+        git -C $main worktree remove -f -f $base 2>$null
+        if ($LASTEXITCODE -or (Test-Path -LiteralPath $base)) { Fail "could not remove the partial base $base (is something using it?)" }
+        $registered = $false
+    }
+}
 if ($registered) {
     Note "already there: $base at $(git -C $base rev-parse --short HEAD)"
 } else {
@@ -122,8 +199,6 @@ if ($st.Phantom.Count) { Note (Get-CowPhantomNote $st.Phantom.Count) }
 
 # ---- 4. config + registry ------------------------------------------------------------------------------
 Step 'Pool config'
-$cfgFile = Join-Path $Root 'cow-config.json'
-$old = if (Test-Path -LiteralPath $cfgFile) { Get-Content -LiteralPath $cfgFile -Raw | ConvertFrom-Json } else { $null }
 $cfg = [ordered]@{
     version           = 1
     name              = $Name
@@ -133,93 +208,74 @@ $cfg = [ordered]@{
     fallbackMinFreeGB = if ($FallbackMinFreeGB -gt 0) { $FallbackMinFreeGB } elseif ($old -and $old.fallbackMinFreeGB) { [int]$old.fallbackMinFreeGB } else { 120 }
     pruneDays         = $PruneDays
 }
-if ($BuildCommand) {
-    $cfg.build = [ordered]@{ prepare = @($BuildPrepare | Where-Object { $_ }); command = $BuildCommand; configs = @($BuildConfigs | Where-Object { $_ }) }
-} elseif ($old -and $old.build) {
-    $cfg.build = $old.build   # keep a build section from an earlier run
+# The build section: each of its three parts comes from its parameter when that was passed, else from the
+# section an earlier run wrote. Without a command (passed now or earlier) there is no section.
+$oldBuild = if ($old) { $old.build } else { $null }
+if ($NoBuild) {
+    if ($oldBuild) { Note 'build section removed (-NoBuild): the base is no longer built, clones start cold' }
+} elseif ($BuildCommand -or ($oldBuild -and $oldBuild.command -and ($given.BuildPrepare -or $given.BuildConfigs))) {
+    $prepare = if ($given.BuildPrepare -or -not $oldBuild) { $BuildPrepare } else { $oldBuild.prepare }
+    $configs = if ($given.BuildConfigs -or -not $oldBuild) { $BuildConfigs } else { $oldBuild.configs }
+    $cfg.build = [ordered]@{
+        prepare = @($prepare | Where-Object { $_ })
+        command = if ($BuildCommand) { $BuildCommand } else { [string]$oldBuild.command }
+        configs = @($configs | Where-Object { $_ })
+    }
+} elseif ($oldBuild) {
+    $cfg.build = $oldBuild   # keep a build section from an earlier run
 }
-ConvertTo-Json -InputObject $cfg -Depth 5 | Set-Content -LiteralPath $cfgFile -Encoding UTF8
+# What this run was asked to wire up; the app's switches read it back. scheduleAt is null without the task.
+$cfg.integrations = [ordered]@{ claude = (-not $NoClaude); codex = (-not $NoCodex); scheduleAt = $taskAt }
+$cfg.integrationRevision = $CowIntegrationRevision
+$cfgText = (ConvertTo-Json -InputObject $cfg -Depth 5) + "`r`n"
+if ($cfgText -cne $cfgWas.Text) { Write-CowText $cfgFile $cfgText $cfgWas.Encoding }
 Note $cfgFile
-$pools = Read-CowPools
+$registry = Read-CowRegistry
+$pools = $registry.Pools
 $pools.toolDir = $PSScriptRoot
 $pools.pools = @(@($pools.pools | Where-Object { (ConvertTo-CowFullPath $_.root) -ne $Root -and $_.name -ne $Name }) + [pscustomobject]@{ name = $Name; root = $Root })
-Write-CowPools $pools
+Write-CowRegistry $registry
 Note "registered in $(Get-CowPoolsFile)"
 
 # ---- 5. Claude Code hooks ------------------------------------------------------------------------------
-$ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-function New-HookCommand([string]$script, [string[]]$extra, [int]$timeout, [string]$status, [string]$if) {
-    $h = [ordered]@{ type = 'command' }
-    if ($if) { $h.if = $if }
-    $h.command = $ps
-    $h.args = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $scripts $script)) + $extra
-    $h.timeout = $timeout
-    if ($status) { $h.statusMessage = $status }
-    return [pscustomobject]$h
-}
-$ourHooks = [ordered]@{
-    PreToolUse     = @(
-        [pscustomobject]@{ matcher = 'Bash'; hooks = @(New-HookCommand 'cc_guard_hook.ps1' @('-Root', $Root) 30 $null 'Bash(*worktree*)') },
-        [pscustomobject]@{ matcher = 'PowerShell'; hooks = @(New-HookCommand 'cc_guard_hook.ps1' @('-Root', $Root) 30 $null 'PowerShell(*worktree*)') })
-    WorktreeCreate = @([pscustomobject]@{ hooks = @(New-HookCommand 'cc_worktree_hook.ps1' @('create', '-Root', $Root) 1800 'Cloning a copy-on-write worktree' $null) })
-    WorktreeRemove = @([pscustomobject]@{ hooks = @(New-HookCommand 'cc_worktree_hook.ps1' @('remove', '-Root', $Root) 600 'Removing the worktree' $null) })
-}
-function Test-OurEntry($entry) {
-    foreach ($h in @($entry.hooks)) { if ((@($h.args) + @($h.command)) -match 'cc_(worktree|guard)_hook\.ps1') { return $true } }
-    return $false
-}
-function Set-ClaudeHooks([string]$checkout) {
-    $dir = Join-Path $checkout '.claude'
-    $file = Join-Path $dir 'settings.local.json'
-    New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    $s = if (Test-Path -LiteralPath $file) { Get-Content -LiteralPath $file -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
-    if (-not $s.hooks) { $s | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) -Force }
-    foreach ($evt in $ourHooks.Keys) {
-        $kept = @($s.hooks.$evt | Where-Object { $_ -and -not (Test-OurEntry $_) })
-        if ($evt -like 'Worktree*' -and $kept.Count) { Note "warning: $file already has another $evt hook; Claude Code runs both" }
-        $s.hooks | Add-Member -NotePropertyName $evt -NotePropertyValue (@($kept) + @($ourHooks[$evt])) -Force
-    }
-    ConvertTo-Json -InputObject $s -Depth 20 | Set-Content -LiteralPath $file -Encoding UTF8
-    # settings.local.json must stay out of Git; exclude it locally if the repository does not ignore it.
-    git -C $checkout check-ignore -q .claude/settings.local.json 2>$null
-    if ($LASTEXITCODE) {
-        $exclude = Join-Path (git -C $checkout rev-parse --path-format=absolute --git-common-dir) 'info\exclude'
-        Add-Content -LiteralPath $exclude -Value '.claude/settings.local.json'
-        Note "added .claude/settings.local.json to $exclude"
-    }
-    Note $file
-}
 if (-not $NoClaude) {
     Step 'Claude Code hooks'
-    $checkouts = @(git -C $main worktree list --porcelain | Where-Object { $_ -like 'worktree *' } | ForEach-Object { ConvertTo-CowFullPath $_.Substring(9) } |
-        Where-Object { $_ -eq $base -or -not $_.StartsWith($Root + '\', [StringComparison]::OrdinalIgnoreCase) } | Where-Object { Test-Path -LiteralPath $_ })
-    foreach ($c in $checkouts) { Set-ClaudeHooks $c }
+    # Every checkout, the pool's worktrees too. A clone gets the base's file when it is made, but one made
+    # while the hooks were switched off (or before the tool folder moved) would never get them, and a
+    # session started in it would make plain worktrees. Set-CowClaudeHooks writes only where the file changes.
+    $checkouts = @(Get-CowCheckouts $main)
+    $changed = 0
+    foreach ($c in $checkouts) { Set-CowClaudeHooks $c $Root $scripts | ForEach-Object { Note $_; $changed++ } }
     try { $st = Get-CowStatus -Dir $base } catch { Fail "git status failed in the base $base" }
     if ($st.Real.Count) { Fail "writing hooks into the base changed tracked files; check $base`n$(Format-CowEntries $st.Real)" }
-    Note 'Claude Code reads new settings files when a session starts: restart open sessions.'
+    if ($changed) { Note 'Claude Code reads new settings files when a session starts: restart open sessions.' }
+    else { Note "already in place in all $($checkouts.Count) checkouts" }
+} elseif ($old) {
+    # Switched off on a re-run: out of every checkout, the pool's worktrees too (each carries the base's copy).
+    $withHooks = @(Get-CowCheckouts $main | Where-Object { Test-CowClaudeHooks $_ })
+    if ($withHooks.Count) {
+        Step 'Claude Code hooks'
+        foreach ($c in $withHooks) { Remove-CowClaudeHooks $c | ForEach-Object { Note $_ } }
+        Note 'Claude Code reads settings files when a session starts: restart open sessions.'
+    }
 }
 
 # ---- 6. Codex ------------------------------------------------------------------------------------------
 if (-not $NoCodex) {
     Step 'Codex instructions'
-    $template = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'templates\codex-AGENTS.md') -Raw
-    $block = $template.Replace('{name}', $Name).Replace('{repo}', $main).Replace('{root}', $Root).Replace('{script}', (Join-Path $scripts 'cow_worktree.ps1')).Replace('{migrate}', (Join-Path $scripts 'migrate_worktree.ps1'))
-    $begin = "<!-- cow-worktrees:$Name begin -->"; $end = "<!-- cow-worktrees:$Name end -->"
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $CodexAgentsFile) | Out-Null
-    $text = if (Test-Path -LiteralPath $CodexAgentsFile) { Get-Content -LiteralPath $CodexAgentsFile -Raw } else { '' }
-    if ($null -eq $text) { $text = '' }
-    $section = "$begin`r`n$($block.Trim())`r`n$end"
-    $i = $text.IndexOf($begin); $j = $text.IndexOf($end)
-    $text = if ($i -ge 0 -and $j -gt $i) { $text.Substring(0, $i) + $section + $text.Substring($j + $end.Length) }
-            else { ($text.TrimEnd() + "`r`n`r`n" + $section + "`r`n").TrimStart() }
-    Set-Content -LiteralPath $CodexAgentsFile -Value $text -Encoding UTF8 -NoNewline
-    Note $CodexAgentsFile
+    Set-CowCodexBlock $CodexAgentsFile $Name $main $Root $PSScriptRoot | ForEach-Object { Note $_ }
+} elseif ($old -and (Test-CowCodexBlock $CodexAgentsFile $Name)) {
+    Step 'Codex instructions'
+    Remove-CowCodexBlock $CodexAgentsFile $Name | ForEach-Object { Note $_ }
 }
 
 # ---- 7. schedule ---------------------------------------------------------------------------------------
 if (-not $NoSchedule) {
     Step 'Daily upkeep task'
-    & (Join-Path $scripts 'register_refresh_task.ps1') -Root $Root -At $ScheduleAt | ForEach-Object { Note $_ }
+    & (Join-Path $scripts 'register_refresh_task.ps1') -Root $Root -At $taskAt | ForEach-Object { Note $_ }
+} elseif ($old -and (Get-ScheduledTask -TaskPath $CowTaskPath -TaskName (Get-CowTaskName $Name) -ErrorAction SilentlyContinue)) {
+    Step 'Daily upkeep task'
+    & (Join-Path $scripts 'register_refresh_task.ps1') -Root $Root -Unregister | ForEach-Object { Note $_ }
 }
 
 if ($BuildNow -and $cfg.build) {

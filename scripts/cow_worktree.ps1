@@ -180,7 +180,8 @@ function Get-CowWorktrees {
         if (-not (Test-Path -LiteralPath $path)) { continue }
         # Phantoms (see Get-CowStatus) are not changes. A status that cannot be read counts as a change: unknown is not clean.
         try { $st = Get-CowStatus -Dir $path -Untracked normal } catch { $st = $null }
-        $start = git -C $path config --worktree --get cow.startCommit 2>$null
+        # [string]: without output this is "nothing", which ConvertTo-Json would write as {} instead of null.
+        $start = [string](git -C $path config --worktree --get cow.startCommit 2>$null)
         $own = if ($start) { [int](git -C $path rev-list --count "$start..HEAD" 2>$null) } else { $null }
         $unpushed = [int](git -C $path rev-list --count HEAD --not --remotes 2>$null)
         $index = git -C $path rev-parse --path-format=absolute --git-path index 2>$null
