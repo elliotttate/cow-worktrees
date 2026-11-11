@@ -21,6 +21,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $Exe = (Resolve-Path $Exe).Path
 $tool = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+# The copy of the tool the app under test belongs to: the first folder above the exe with setup.ps1, as the app
+# finds it. With -Exe from an unzipped release that is the unzipped folder, not this repository.
+$appTool = $tool
+for ($up = Split-Path $Exe; $up; $up = Split-Path $up) { if (Test-Path -LiteralPath (Join-Path $up 'setup.ps1')) { $appTool = $up; break } }
 $dir = "${Drive}:\cow-found-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8)
 $script:failed = 0; $script:passed = 0
 function Check([string]$what, [bool]$ok, [string]$detail = '') {
@@ -88,7 +92,7 @@ try {
     $registry = Get-Content "$dir\home-after\pools.json" -Raw | ConvertFrom-Json
     Check 'it is in the new list of repositories, and only it' (@($registry.pools).Count -eq 1 -and $registry.pools[0].root -eq $demoRoot -and $registry.pools[0].name -eq 'FoundDemo')
     $hooks = Get-Content "$dir\repo\.claude\settings.local.json" -Raw
-    Check 'Claude Code is connected to this copy of the tool' ($hooks -like '*WorktreeCreate*' -and $hooks.Replace('\\', '\') -like "*$tool\scripts\cc_worktree_hook.ps1*" -and $hooks.Replace('\\', '\') -like "*$demoRoot*")
+    Check 'Claude Code is connected to this copy of the tool' ($hooks -like '*WorktreeCreate*' -and $hooks.Replace('\\', '\') -like "*$appTool\scripts\cc_worktree_hook.ps1*" -and $hooks.Replace('\\', '\') -like "*$demoRoot*")
     Check 'the Codex text is written again' ((Test-Path "$dir\codex\AGENTS.md") -and (Get-Content "$dir\codex\AGENTS.md" -Raw) -like '*cow-worktrees:FoundDemo begin*')
     Check 'no daily task was made, as it was set up without one' (-not (Get-ScheduledTask -TaskPath '\CowWorktrees\' -TaskName 'Refresh-FoundDemo' -ErrorAction SilentlyContinue))
     Check 'its worktree is still there, untouched' ((Test-Path "$demoRoot\one\README.md") -and (G -C "$dir\repo" worktree list) -match 'one')
