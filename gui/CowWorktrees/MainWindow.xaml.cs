@@ -48,13 +48,14 @@ public sealed partial class MainWindow : Window
 
         FilterBox.SelectedIndex = (int)VM.Filter;
         SortBox.SelectedIndex = (int)VM.Sort;
-        IntervalBox.SelectedItem = IntervalBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == VM.Settings.RefreshIntervalSeconds.ToString())
-                                   ?? IntervalBox.Items[1];
+        foreach (var item in IntervalMenu.Items.OfType<RadioMenuFlyoutItem>())
+            item.IsChecked = (string)item.Tag == VM.Settings.RefreshIntervalSeconds.ToString();
 
         if (_options.Unattended)
             RootGrid.Background = (Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"];
 
         InitializeLayout();
+        InitializeSetup();
         UpdatePages();
     }
 
@@ -167,9 +168,9 @@ public sealed partial class MainWindow : Window
 
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await VM.RefreshAsync();
 
-    private void IntervalBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void Interval_Click(object sender, RoutedEventArgs e)
     {
-        if (IntervalBox.SelectedItem is ComboBoxItem item && int.TryParse((string)item.Tag, out var seconds) && seconds != VM.Settings.RefreshIntervalSeconds)
+        if (sender is RadioMenuFlyoutItem item && int.TryParse((string)item.Tag, out var seconds) && seconds != VM.Settings.RefreshIntervalSeconds)
             VM.SetInterval(seconds);
     }
 
@@ -201,6 +202,8 @@ public sealed partial class MainWindow : Window
 
     private void OnRefreshCompleted()
     {
+        if (!_firstRefreshSeen && !_options.Unattended && !_options.Hidden) _ = CheckForUpdatesAsync();
+        OfferWalkthroughOnce();
         if (_options.Unattended && !_unattendedDone)
         {
             _unattendedDone = true;
@@ -259,6 +262,11 @@ public sealed partial class MainWindow : Window
         Add($"Open in {VM.EditorName}", "", () => Open(row, p => Launcher.Editor(VM.EditorPath!, p)), VM.EditorAvailable);
         Add("Copy path", "", () => CopyText(row.Path));
         Add("Copy branch", "", () => CopyText(row.Branch), row.Branch != null);
+        if (row.CanMigrate)
+        {
+            menu.Items.Add(new MenuFlyoutSeparator());
+            Add("Move to copy-on-write…", "", () => _ = ConfirmMigrateAsync(row));
+        }
         if (row.CanRemove)
         {
             menu.Items.Add(new MenuFlyoutSeparator());
@@ -304,10 +312,10 @@ public sealed partial class MainWindow : Window
         if (!VM.HasUsablePool) return false;   // the empty state already says why
         await ShowDialogAsync(new ContentDialog
         {
-            Title = "cow_worktree.ps1 not found",
-            Content = string.IsNullOrEmpty(VM.ScriptPath)
-                ? $"{CowHome.PoolsFile} names no toolDir. Run setup.ps1 again from the cow-worktrees folder."
-                : $"{VM.ScriptPath} does not exist. Run setup.ps1 again from the cow-worktrees folder, so pools.json names where it is.",
+            Title = "The cow-worktrees scripts were not found",
+            Content = Para(string.IsNullOrEmpty(VM.ScriptPath)
+                ? "This app runs the scripts that come with it, and they are not next to it. Install cow-worktrees again (or unzip it again and start the app from the app folder inside it)."
+                : $"{VM.ScriptPath} does not exist. Install cow-worktrees again (or unzip it again and start the app from the app folder inside it)."),
             CloseButtonText = "OK",
         });
         return false;
@@ -426,7 +434,8 @@ public sealed partial class MainWindow : Window
         var panel = new StackPanel { Spacing = 10, MinWidth = 480 };
         panel.Children.Add(Para($"{row.Path}\nbranch {row.BranchDisplay} · HEAD {row.ShortSha} {row.Subject}"));
         var warnings = new List<string>();
-        if (row.IsDirty) warnings.Add($"It has {Fmt.Plural(row.Changed, "changed file")} and {Fmt.Plural(row.Untracked, "untracked path")}. git worktree remove refuses a worktree with changes, and this app never forces it.");
+        if (row.IsDirty) warnings.Add($"It has {Fmt.Plural(row.Changed, "changed file")} and {Fmt.Plural(row.Untracked, "untracked path")}. A worktree with changes is refused, so nothing is lost: commit or delete them first.");
+        else if (row.Phantom > 0) panel.Children.Add(Para(row.PhantomNote + ". They do not stop the removal.", Theme.Secondary, 12));
         if (row.IsLocked) warnings.Add($"It is locked ({row.LockReason}); git worktree remove refuses locked worktrees.");
         if (row.AtRisk) warnings.Add($"Its HEAD is detached with {Fmt.Plural(row.Unpushed ?? 0, "commit")} on no branch and no remote. After removal they are reachable only from the reflog.");
         else if (row.HasUnpushed) warnings.Add($"Its branch {row.Branch} has {Fmt.Plural(row.Unpushed ?? 0, "commit")} on no remote. The branch is kept, so they stay in the repository.");
@@ -545,11 +554,11 @@ public sealed partial class MainWindow : Window
         var panel = new StackPanel { Spacing = 10, MinWidth = 520 };
         var config = VM.Pool!.Config!;
         string build = config.Build is { } b
-            ? $"then builds it{(b.Configs.Count > 0 ? $" ({string.Join(", ", b.Configs)})" : "")}, which can take a while; worktrees made during the build build in full the first time"
-            : "and stops there: this pool has no build configured";
-        panel.Children.Add(Para($"Fetches {config.BaseRef}, moves the base of the pool \"{VM.Pool.Name}\" to it, {build}. Moving the base takes it exclusively for a few seconds, so new worktrees wait that long. Output streams to Activity."));
+            ? $"then builds it{(b.Configs.Count > 0 ? $" ({string.Join(", ", b.Configs)})" : "")}, which can take a while; worktrees made during the build build in full the first time. The build can be stopped"
+            : "and that is all: no build is set up for this repository (Repository settings, Faster first builds)";
+        panel.Children.Add(Para($"Fetches {config.BaseRef}, moves the base copy of \"{VM.Pool.Name}\" to it, {build}. Moving the base takes it exclusively for a few seconds, so new worktrees wait that long. Output streams to Activity."));
         if (VM.BaseRefreshLockHeld) panel.Children.Add(Para("⚠  A refresh already holds the base lock (perhaps the scheduled task); the script will refuse to start a second one.", Theme.Caution));
-        panel.Children.Add(Mono(VM.CommandLineFor(new[] { "-RefreshBase", "-Fetch", "-Build" })));
+        panel.Children.Add(Mono(VM.CommandLineFor(VM.RefreshBaseArgs)));
         var dialog = new ContentDialog
         {
             Title = "Refresh the base?",
@@ -567,7 +576,8 @@ public sealed partial class MainWindow : Window
     private void OnOperationStarted(OperationViewModel op)
     {
         if (op.Kind == OperationKind.PrunePreview) return;
-        SelectTab("activity");
+        // The walkthrough and Repository settings show their own progress; leave the page under them alone.
+        if (!OverlayOpen) SelectTab("activity");
         OpsList.SelectedItem = op;
     }
 
@@ -637,6 +647,7 @@ public sealed partial class MainWindow : Window
     {
         try
         {
+            await PrepareUnattendedAsync();
             if (_options.Tab != null) SelectTab(_options.Tab);
             if (_options.Select != null && VM.FindRow(_options.Select) is { } row)
             {

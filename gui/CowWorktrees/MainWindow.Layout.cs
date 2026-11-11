@@ -328,7 +328,7 @@ public sealed partial class MainWindow
     private void OnOperationCompleted(OperationViewModel op)
     {
         bool watching = ActivityPage.Visibility == Visibility.Visible && _watchedOp == op;
-        if (op.Succeeded && watching && op.Kind is OperationKind.Create or OperationKind.Remove) SelectTab("worktrees");
+        if (op.Succeeded && watching && op.Kind is OperationKind.Create or OperationKind.Remove or OperationKind.Retire or OperationKind.Setup or OperationKind.Uninstall) SelectTab("worktrees");
         if (op.Succeeded && op.Kind == OperationKind.Create && op.ResultLine != null && VM.FindRow(op.ResultLine) is { } created)
         {
             if (!VM.Visible.Contains(created)) FilterBox.SelectedIndex = (int)RowFilter.All;
@@ -343,15 +343,27 @@ public sealed partial class MainWindow
     private static string BannerMessage(OperationViewModel op)
     {
         var lines = op.Lines.Select(l => l.Text).Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+        if (op.Cancelled) return lines.LastOrDefault() ?? "";
         if (!op.Succeeded)
         {
-            var reason = lines.FirstOrDefault(l => l.StartsWith("cow_worktree:", StringComparison.Ordinal)) ?? lines.LastOrDefault() ?? "";
-            return reason.StartsWith("cow_worktree:", StringComparison.Ordinal) ? reason["cow_worktree:".Length..].Trim() : reason;
+            // what happened in plain words when the message is a known one, and always the script's own line
+            var f = op.Friendly;
+            if (f == null) return lines.LastOrDefault() ?? "";
+            string raw = f.Raw.Split('\n')[0];
+            return f.Known ? $"{f.Explanation}\n{raw}" : raw;
         }
         switch (op.Kind)
         {
             case OperationKind.Create:
                 return op.ResultLine ?? "";
+            case OperationKind.Setup:
+                return op.Title.StartsWith("Set up", StringComparison.Ordinal)
+                    ? "The repository is set up. Restart open Claude Code sessions so they read the new settings."
+                    : "The repository was updated. If Claude Code's connection changed, restart open sessions so they read it.";
+            case OperationKind.Uninstall:
+                return "The repository was removed from the app. Its worktrees and branches are untouched.";
+            case OperationKind.Migrate:
+                return $"Copied and checked: {op.ResultLine}";
             case OperationKind.Prune:
                 int removed = lines.Count(l => ProgressPrefix.Replace(l, "").StartsWith("removed ", StringComparison.Ordinal));
                 return removed == 0 ? "Nothing was removed." : $"Removed {Fmt.Plural(removed, "worktree")}.";
@@ -364,8 +376,10 @@ public sealed partial class MainWindow
     private void ShowBanner(OperationViewModel op)
     {
         _bannerOp = op;
-        OpInfoBar.Severity = op.Succeeded ? InfoBarSeverity.Success : InfoBarSeverity.Error;
-        OpInfoBar.Title = op.Succeeded ? $"{op.Title}: done in {op.ElapsedText}" : $"{op.Title}: failed";
+        OpInfoBar.Severity = op.Succeeded ? InfoBarSeverity.Success : op.Cancelled ? InfoBarSeverity.Warning : InfoBarSeverity.Error;
+        OpInfoBar.Title = op.Succeeded ? $"{op.Title}: done in {op.ElapsedText}"
+            : op.Cancelled ? $"{op.Title}: stopped"
+            : op.Friendly is { Known: true } f ? $"{op.Title}: {f.Title}" : $"{op.Title}: failed";
         OpInfoBar.Message = BannerMessage(op);
         OpInfoBar.IsOpen = true;
 

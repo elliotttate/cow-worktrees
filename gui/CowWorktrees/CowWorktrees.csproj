@@ -22,10 +22,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <Version>1.0.1</Version>
+    <Version>1.1.0</Version>
     <Product>CoW Worktrees</Product>
     <AssemblyTitle>CoW Worktrees</AssemblyTitle>
-    <Description>Watch and manage copy-on-write Git worktrees made by cow-worktrees.</Description>
+    <Description>Set up, watch and manage copy-on-write Git worktrees.</Description>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
@@ -43,8 +43,9 @@
        compiled XAML), and the published exe then dies in InitializeComponent. Publish them with the rest. -->
   <Target Name="PublishAppXamlResources" AfterTargets="ComputeResolvedFilesToPublishList">
     <ItemGroup>
-      <_AppXamlResource Include="$(OutDir)$(TargetName).pri;$(OutDir)*.xbf" />
-      <ResolvedFileToPublish Include="@(_AppXamlResource)" RelativePath="%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
+      <!-- **: views live in folders (Views\SetupWizard.xbf), and are looked up under the same relative path. -->
+      <_AppXamlResource Include="$(OutDir)$(TargetName).pri;$(OutDir)**\*.xbf" />
+      <ResolvedFileToPublish Include="@(_AppXamlResource)" RelativePath="%(RecursiveDir)%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
   </Target>
 </Project>

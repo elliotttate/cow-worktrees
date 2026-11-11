@@ -9,6 +9,14 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        // --theme light|dark: the theme can only be chosen here, before the first window exists
+        var argv = Environment.GetCommandLineArgs();
+        int t = Array.FindIndex(argv, a => a.Equals("--theme", StringComparison.OrdinalIgnoreCase));
+        if (t >= 0 && t + 1 < argv.Length)
+        {
+            if (argv[t + 1].Equals("light", StringComparison.OrdinalIgnoreCase)) RequestedTheme = ApplicationTheme.Light;
+            else if (argv[t + 1].Equals("dark", StringComparison.OrdinalIgnoreCase)) RequestedTheme = ApplicationTheme.Dark;
+        }
         UnhandledException += (_, e) =>
         {
             AppLog.Write($"unhandled: {e.Exception}");
@@ -26,8 +34,49 @@ public partial class App : Application
     {
         var options = StartupOptions.Parse(Environment.GetCommandLineArgs());
         AppSettings.ReadOnly = options.Unattended;
+        Services.SystemChecks.FakeFile = options.FakeChecksPath;
+        if (!options.Hidden && !options.Unattended && !ClaimSingleInstance())
+        {
+            // Another window of this app is open (perhaps hidden while a job finishes): it has been asked to come forward.
+            Environment.Exit(0);
+            return;
+        }
         _window = new MainWindow(options);
         _window.Start();
+    }
+
+    // The installer waits for this mutex to go away before it replaces files (AppMutex in installer\CowWorktrees.iss).
+    public const string InstanceMutexName = "cow-worktrees.app";
+    private const string ShowEventName = "cow-worktrees.app.show";
+    private Mutex? _instanceMutex;
+    private EventWaitHandle? _showEvent;
+
+    /// <summary>One window per person. A second start asks the first to show itself. Unattended runs take no part.</summary>
+    private bool ClaimSingleInstance()
+    {
+        try
+        {
+            _instanceMutex = new Mutex(true, InstanceMutexName, out bool first);
+            if (!first)
+            {
+                try
+                {
+                    using var show = EventWaitHandle.OpenExisting(ShowEventName);
+                    show.Set();
+                }
+                catch { }
+                return false;
+            }
+            _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
+            var dq = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+            ThreadPool.RegisterWaitForSingleObject(_showEvent, (_, _) => dq.TryEnqueue(() => _window?.BringToFront()), null, Timeout.Infinite, false);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write($"single instance: {ex.Message}");
+            return true;   // never keep the app from starting over this
+        }
     }
 }
 
@@ -76,7 +125,25 @@ public sealed class StartupOptions
     /// <summary>--sort Activity: before the snapshot, click that column header (twice with "--sort Activity:2").</summary>
     public (string Column, int Clicks)? SortClick { get; private set; }
 
-    public bool Unattended => SnapshotPath != null || DumpPath != null;
+    // ---- for tests and screenshots of the walkthrough, setup and updates (see gui\README.md) -------------------
+    /// <summary>--wizard [step]: open the walkthrough on that screen (welcome, checks, project, location, tools, builds, review, done).</summary>
+    public string? Wizard { get; private set; }
+    /// <summary>--wizard-state &lt;json&gt;: answers to fill in (repo, root, baseRef, claude, codex, schedule, buildCommand, autoStart).</summary>
+    public string? WizardStatePath { get; private set; }
+    /// <summary>--fake-checks &lt;json&gt;: pretend Git or the Dev Drive is missing; honoured only with --hidden.</summary>
+    public string? FakeChecksPath { get; private set; }
+    /// <summary>--selftest-checks &lt;out.json&gt;: write what "Check this PC" finds and where the tool folder is, then exit.</summary>
+    public string? SelfTestChecksPath { get; private set; }
+    /// <summary>--run-setup &lt;options.json&gt;: run setup.ps1 or uninstall.ps1 the way the app does, write the outcome, then exit.</summary>
+    public string? RunSetupPath { get; private set; }
+    /// <summary>--settings: open Repository settings (for a snapshot).</summary>
+    public bool OpenSettings { get; private set; }
+    /// <summary>--update-feed &lt;url&gt;: a stand-in for the GitHub address; only http://127.0.0.1 or http://localhost, only with --hidden.</summary>
+    public string? UpdateFeed { get; private set; }
+    /// <summary>--update-result &lt;out.json&gt;: check the test feed, verify the download, write what would have happened; never starts a file.</summary>
+    public string? UpdateResultPath { get; private set; }
+
+    public bool Unattended => SnapshotPath != null || DumpPath != null || SelfTestChecksPath != null || RunSetupPath != null || UpdateResultPath != null;
 
     public static StartupOptions Parse(string[] argv)
     {
@@ -94,6 +161,17 @@ public sealed class StartupOptions
                 case "--tab": o.Tab = Next(); break;
                 case "--select": o.Select = Next(); break;
                 case "--pool": o.Pool = Next(); break;
+                case "--wizard":
+                    o.Wizard = i + 1 < argv.Length && !argv[i + 1].StartsWith("--", StringComparison.Ordinal) ? Next() : "welcome";
+                    break;
+                case "--wizard-state": o.WizardStatePath = Next(); break;
+                case "--fake-checks": o.FakeChecksPath = Next(); break;
+                case "--selftest-checks": o.SelfTestChecksPath = Next(); o.ExitAfter = true; break;
+                case "--run-setup": o.RunSetupPath = Next(); o.ExitAfter = true; break;
+                case "--settings": o.OpenSettings = true; break;
+                case "--theme": Next(); break;   // read in App's constructor
+                case "--update-feed": o.UpdateFeed = Next(); break;
+                case "--update-result": o.UpdateResultPath = Next(); o.ExitAfter = true; break;
                 case "--drag":
                     var d = (Next() ?? "").Split(':');
                     if (d.Length == 2 && int.TryParse(d[0], out var di) && double.TryParse(d[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var dx))
@@ -108,6 +186,12 @@ public sealed class StartupOptions
                     if (parts.Length == 2 && int.TryParse(parts[0], out var w) && int.TryParse(parts[1], out var h)) o.Size = (w, h);
                     break;
             }
+        }
+        // The stand-ins are for tests only: without --hidden they are ignored.
+        if (!o.Hidden)
+        {
+            o.FakeChecksPath = null;
+            o.UpdateFeed = null;
         }
         return o;
     }

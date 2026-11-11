@@ -58,8 +58,15 @@ public sealed class MainViewModel : ObservableObject
     }
 
     public AppSettings Settings { get; }
-    public string? EditorPath { get; }
-    public string EditorName { get; }
+    public string? EditorPath { get; private set; }
+    public string EditorName { get; private set; }
+
+    /// <summary>After the editor setting changed: look for it again.</summary>
+    public void ReloadEditor()
+    {
+        (EditorPath, EditorName) = Launcher.FindEditor(Settings.EditorPath);
+        Raise(nameof(EditorPath), nameof(EditorName), nameof(OpenInEditorLabel), nameof(EditorAvailable));
+    }
     public string OpenInEditorLabel => EditorPath == null ? "No editor found" : EditorName;
     public bool EditorAvailable => EditorPath != null;
 
@@ -96,15 +103,17 @@ public sealed class MainViewModel : ObservableObject
     public Visibility PoolPickerVisibility => Theme.Vis(Pools.Count > 1);
     public Visibility PoolContentVisibility => Theme.Vis(HasUsablePool);
     public Visibility EmptyStateVisibility => Theme.Vis(!HasUsablePool);
+    public bool HasNoRepositories => _registryError == null && Pools.Count == 0;
     public string EmptyTitle =>
-        _registryError != null ? "pools.json could not be read"
-        : Pools.Count == 0 ? "No pools set up yet"
-        : $"The pool \"{_pool?.Name}\" cannot be used";
+        _registryError != null ? "The list of repositories could not be read"
+        : Pools.Count == 0 ? "Set up your first repository"
+        : $"\"{_pool?.Name}\" cannot be used right now";
     public string EmptyText =>
         _registryError
         ?? (Pools.Count == 0
-            ? $"A pool is one repository's copy-on-write setup: a folder on a ReFS drive holding the base worktree and the worktrees cloned from it. Run setup.ps1 from the cow-worktrees folder to create one (see its README). Pools are listed in {CowHome.PoolsFile}, which this app reads."
-            : $"{_pool?.ConfigError}\n\nPool folder: {_pool?.Root}");
+            ? "A worktree is a second working copy of your project, so you (or an AI agent) can work on several things at once. This app makes each one in seconds and without using more disk space. The walkthrough checks this PC, sets up one of your projects and connects Claude Code and Codex. It takes a few minutes."
+            : $"{_pool?.ConfigError}\n\nFolder: {_pool?.Root}");
+    public string EmptyPrimaryLabel => HasNoRepositories ? "Get started" : "Look again";
     public string PoolCaption =>
         _pool == null ? "" : _pool.IsUsable ? $"{_pool.Name}  ·  {_pool.Repo}  ·  {_pool.Root}" : $"{_pool.Name}  ·  {_pool.Root}";
     public int DefaultPruneDays => _pool?.Config?.PruneDays ?? 7;
@@ -170,7 +179,10 @@ public sealed class MainViewModel : ObservableObject
     }
 
     private void RaisePool() => Raise(nameof(Pool), nameof(SelectedPool), nameof(HasUsablePool), nameof(PoolPickerVisibility), nameof(PoolContentVisibility),
-        nameof(EmptyStateVisibility), nameof(EmptyTitle), nameof(EmptyText), nameof(PoolCaption), nameof(DefaultPruneDays), nameof(BranchPrefix), nameof(ScriptAvailable));
+        nameof(EmptyStateVisibility), nameof(EmptyTitle), nameof(EmptyText), nameof(EmptyPrimaryLabel), nameof(HasNoRepositories), nameof(HasAnyPool),
+        nameof(PoolCaption), nameof(DefaultPruneDays), nameof(BranchPrefix), nameof(ScriptAvailable), nameof(ToolDir));
+
+    public bool HasAnyPool => _pool != null;
 
     // ---- header and status -----------------------------------------------------------------------------------
     public bool IsRefreshing { get; private set; }
@@ -430,7 +442,7 @@ public sealed class MainViewModel : ObservableObject
         var cowTask = cow.ScriptExists ? Task.Run(() => cow.ListAsync()) : null;
         if (!cow.ScriptExists)
             problems.Add(string.IsNullOrEmpty(cow.ScriptPath)
-                ? $"{CowHome.PoolsFile} has no toolDir: create, remove, prune and refresh are unavailable"
+                ? "The cow-worktrees scripts were not found next to this app, so create, remove, prune and refresh are unavailable"
                 : $"{cow.ScriptPath} not found: create, remove, prune and refresh are unavailable");
         Raise(nameof(ScriptAvailable));
 
@@ -478,6 +490,24 @@ public sealed class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             problems.Add("base health: " + ex.Message);
+        }
+
+        if (entries != null)
+        {
+            try
+            {
+                // setup.ps1 writes its hooks into every checkout of the repository
+                var checkouts = entries.Where(e => !e.Bare && Directory.Exists(e.Path)).Select(e => e.Path).ToList();
+                string? toolDir = ToolDir;
+                var report = await Task.Run(() => IntegrationStatus.Read(pool, toolDir, checkouts));
+                if (generation != _generation) return;
+                Integrations = report;
+                Raise(nameof(Integrations), nameof(DriftText), nameof(DriftVisibility));
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write($"integration status: {ex.Message}");
+            }
         }
 
         ApplyView();
@@ -536,8 +566,8 @@ public sealed class MainViewModel : ObservableObject
             items.Insert(0, new HealthItem("Base worktree", "not registered", $"{pool.BasePath} is not a worktree of {pool.Repo}", Severity.Error));
         else if (baseRow.HasProbe)
             items.Insert(Math.Min(1, items.Count), baseRow.Changed == 0
-                ? new HealthItem("Base worktree", baseRow.IsLocked ? "clean and locked" : "clean, NOT locked", baseRow.IsLocked ? $"{baseRow.Path}: no tracked changes{(baseRow.Untracked > 0 ? $" ({Fmt.Plural(baseRow.Untracked, "untracked path")}, which cloning ignores)" : "")}" : "the base should be locked so `git worktree prune` and agents leave it alone", baseRow.IsLocked ? Severity.Ok : Severity.Warning)
-                : new HealthItem("Base worktree", $"{Fmt.Plural(baseRow.Changed, "changed path")}", "cow_worktree.ps1 refuses to clone from a base with tracked changes; new worktrees fail until it is clean", Severity.Error));
+                ? new HealthItem("Base worktree", baseRow.IsLocked ? "clean and locked" : "clean, NOT locked", baseRow.IsLocked ? $"{baseRow.Path}: no tracked changes{(baseRow.Untracked > 0 ? $" ({Fmt.Plural(baseRow.Untracked, "untracked path")}, which cloning ignores)" : "")}{(baseRow.Phantom > 0 ? $". {baseRow.PhantomNote}" : "")}" : "the base should be locked so `git worktree prune` and agents leave it alone", baseRow.IsLocked ? Severity.Ok : Severity.Warning)
+                : new HealthItem("Base worktree", $"{Fmt.Plural(baseRow.Changed, "changed path")}", "New worktrees cannot be made until the base matches the project again. Something edited or built in it: put the files back with `git checkout -- <file>` in the base folder.", Severity.Error));
 
         HealthItems.Clear();
         foreach (var i in items) HealthItems.Add(new HealthItemViewModel(i));
@@ -568,6 +598,21 @@ public sealed class MainViewModel : ObservableObject
     public bool ScriptAvailable => _cow?.ScriptExists == true;
     public string ScriptPath => _registry.ScriptPath;
 
+    /// <summary>The cow-worktrees folder scripts run from (the one this app sits in, else the one pools.json names); null when there is none.</summary>
+    public string? ToolDir => _registry.ResolvedToolDir;
+    public string SetupScript => ToolFolder.Script(ToolDir, "setup.ps1") ?? "";
+    public string UninstallScript => ToolFolder.Script(ToolDir, "uninstall.ps1") ?? "";
+    public string MigrateScript => ToolFolder.Script(ToolDir, "scripts", "migrate_worktree.ps1") ?? "";
+    public bool SetupAvailable => File.Exists(SetupScript);
+    public GitService Git => _git;
+
+    /// <summary>What is connected for the selected repository, as found on disk at the last refresh.</summary>
+    public IntegrationReport? Integrations { get; private set; }
+    public string DriftText => Integrations?.Drift ?? "";
+    public Visibility DriftVisibility => Theme.Vis(HasUsablePool && Integrations?.Drift != null && !SetupRunning);
+    public bool SetupRunning => Operations.Any(o => o.IsRunning && o.Kind is OperationKind.Setup or OperationKind.Uninstall);
+    public bool MigrateRunning => Operations.Any(o => o.IsRunning && o.Kind is OperationKind.Migrate or OperationKind.Retire);
+
     public Task<(List<string> Local, List<string> Remote)> GetRefsAsync() => Task.Run(() => _git.ListRefsAsync(_pool?.Repo ?? ""));
 
     public string CommandLineFor(IEnumerable<string> args) => _cow?.CommandLine(args) ?? "";
@@ -577,7 +622,15 @@ public sealed class MainViewModel : ObservableObject
         var args = new List<string> { "-Name", name };
         if (!string.IsNullOrWhiteSpace(branch)) { args.Add("-Branch"); args.Add(branch.Trim()); }
         if (!string.IsNullOrWhiteSpace(from)) { args.Add("-From"); args.Add(from.Trim()); }
-        return StartScript(OperationKind.Create, $"Create {name}", args, TimeSpan.FromHours(2));
+        var pool = _pool!;
+        string target = System.IO.Path.Combine(pool.Root, name);
+        bool existed = Directory.Exists(target);
+        var op = new OperationViewModel(OperationKind.Create, $"Create {name}", _cow!.CommandLine(args)) { Target = target, PoolRoot = pool.Root };
+        // A clone that is stopped holds nothing of yours yet: what was made is removed again (see CleanUpUnfinishedCloneAsync).
+        op.CanCancel = !existed;
+        _ = RunScriptAsync(op, args, TimeSpan.FromHours(2), refreshAfter: true,
+            afterCancel: existed ? null : () => CleanUpUnfinishedCloneAsync(pool, target, "cow.startCommit"));
+        return op;
     }
 
     public OperationViewModel StartRemove(WorktreeViewModel row) =>
@@ -591,27 +644,212 @@ public sealed class MainViewModel : ObservableObject
             _cow!.CommandLine(new[] { "-Prune", "-OlderThanDays", days.ToString(), "-DryRun" })),
             new[] { "-Prune", "-OlderThanDays", days.ToString(), "-DryRun" }, TimeSpan.FromMinutes(10), refreshAfter: false);
 
-    public OperationViewModel StartRefreshBase() =>
-        StartScript(OperationKind.RefreshBase, "Refresh base (fetch + build)", new[] { "-RefreshBase", "-Fetch", "-Build" }, TimeSpan.FromHours(4));
+    /// <summary>The base is built after it moves only when the repository has a build command; without one, asking for a build is an error.</summary>
+    public bool RefreshBuilds => _pool?.Config?.Build != null;
+    public IReadOnlyList<string> RefreshBaseArgs => RefreshBuilds ? new[] { "-RefreshBase", "-Fetch", "-Build" } : new[] { "-RefreshBase", "-Fetch" };
+
+    public OperationViewModel StartRefreshBase()
+    {
+        bool build = RefreshBuilds;
+        var args = RefreshBaseArgs;
+        var op = new OperationViewModel(OperationKind.RefreshBase, build ? "Refresh base (fetch + build)" : "Refresh base (fetch)", _cow!.CommandLine(args)) { PoolRoot = _pool?.Root };
+        // Moving the base is never cut off. Once it has moved, only the build is left, and a stopped build just
+        // leaves the base without build output until the next one.
+        if (build)
+            op.LineAdded += line =>
+            {
+                if (line.Contains("base moved from", StringComparison.Ordinal) || line.Contains("base already at", StringComparison.Ordinal)) op.CanCancel = true;
+            };
+        _ = RunScriptAsync(op, args, TimeSpan.FromHours(4), refreshAfter: true, afterCancel: () => Task.FromResult("Stopped. The base is where it should be; it has no build output until the next build finishes."));
+        return op;
+    }
+
+    // ---- setup, removal and moving existing worktrees ------------------------------------------------------------
+
+    /// <summary>Runs setup.ps1: a first setup from the walkthrough, or again with other choices from Repository settings.</summary>
+    public OperationViewModel StartSetup(SetupOptions o, string? title = null)
+    {
+        var args = SetupRunner.SetupArgs(o);
+        string script = SetupScript;
+        string root = Services.Pool.FullPath(o.Root);
+        var op = new OperationViewModel(OperationKind.Setup, title ?? $"Set up {System.IO.Path.GetFileName(o.Repo.TrimEnd('\\'))}", SetupRunner.CommandLine(script, args)) { Target = root, PoolRoot = root };
+        var steps = new List<string> { "Checking prerequisites", "Base worktree", "Pool config" };
+        if (o.Claude) steps.Add("Claude Code hooks");
+        if (o.Codex) steps.Add("Codex instructions");
+        if (o.Schedule) steps.Add("Daily upkeep task");
+        if (o.BuildNow && !o.NoBuild) steps.Add("Building the base (warm clones)");
+        op.ExpectSteps(steps);
+
+        // The one long step is the first full copy of the project. It can be stopped, and what it made is removed
+        // again, but only when this run is the one making it.
+        string basePath = System.IO.Path.Combine(root, "base");
+        bool baseExisted = Directory.Exists(basePath);
+        bool rootExisted = Directory.Exists(root);
+        if (!baseExisted)
+            op.LineAdded += line =>
+            {
+                if (line.StartsWith("==> ", StringComparison.Ordinal)) op.CanCancel = line.Trim() == "==> Base worktree";
+            };
+        _ = RunOperationAsync(op,
+            (onLine, ct) => SetupRunner.RunAsync(script, args, Directory.Exists(o.Repo) ? o.Repo : null, onLine, TimeSpan.FromHours(8), ct),
+            refreshAfter: true,
+            afterCancel: baseExisted ? null : () => CleanUpStoppedSetupAsync(o.Repo, root, basePath, rootExisted),
+            afterSuccess: () =>
+            {
+                LoadRegistry();
+                var added = Pools.FirstOrDefault(p => p.Root.Equals(root, StringComparison.OrdinalIgnoreCase));
+                if (added != null && !ReferenceEquals(added, _pool)) SwitchPool(added);
+                return Task.CompletedTask;
+            });
+        return op;
+    }
+
+    /// <summary>Runs uninstall.ps1: disconnects the repository; worktrees and branches stay. removePool also deletes the base copy.</summary>
+    public OperationViewModel StartUninstall(Pool pool, bool removePool)
+    {
+        var args = SetupRunner.UninstallArgs(pool.Root, removePool);
+        string script = UninstallScript;
+        var op = new OperationViewModel(OperationKind.Uninstall, $"Remove {pool.Name}", SetupRunner.CommandLine(script, args)) { PoolRoot = pool.Root };
+        _ = RunOperationAsync(op, (onLine, ct) => SetupRunner.RunAsync(script, args, null, onLine, TimeSpan.FromHours(1), ct), refreshAfter: true);
+        return op;
+    }
+
+    /// <summary>
+    /// Runs migrate_worktree.ps1 for a full worktree outside the pool: copies it into a copy-on-write clone and
+    /// checks the copy. With <paramref name="retireAfter"/>, a second run (-RemoveOld) follows when the first
+    /// succeeded: it checks again, removes the old folder and leaves a junction in its place.
+    /// </summary>
+    public OperationViewModel StartMigrate(string from, string name, bool retireAfter)
+    {
+        var pool = _pool!;
+        string script = MigrateScript;
+        string leaf = System.IO.Path.GetFileName(from.TrimEnd('\\'));
+        string target = System.IO.Path.Combine(pool.Root, name);
+        bool existed = Directory.Exists(target);
+        var args = SetupRunner.MigrateArgs(from, name, pool.Root, removeOld: false);
+        var op = new OperationViewModel(OperationKind.Migrate, $"Move {leaf} to copy-on-write", SetupRunner.CommandLine(script, args)) { Target = target, PoolRoot = pool.Root };
+        // The copy can be stopped at any point: a clone that had begun copying is picked up by the next run, one
+        // that had not is removed again.
+        op.CanCancel = true;
+        _ = RunOperationAsync(op,
+            (onLine, ct) => SetupRunner.RunAsync(script, args, pool.Repo, onLine, TimeSpan.FromHours(12), ct),
+            refreshAfter: true,
+            afterCancel: existed ? () => Task.FromResult("Stopped. Run it again to pick up where it stopped; nothing was removed.") : () => CleanUpUnfinishedCloneAsync(pool, target, "cow.migrateFrom"),
+            afterSuccess: () =>
+            {
+                if (retireAfter) StartRetire(from, name, pool);
+                return Task.CompletedTask;
+            });
+        return op;
+    }
+
+    /// <summary>The second half of a move: verify the copy again, remove the old folder, leave a junction. Never cut off.</summary>
+    public OperationViewModel StartRetire(string from, string name, Pool? pool = null)
+    {
+        pool ??= _pool!;
+        string script = MigrateScript;
+        var args = SetupRunner.MigrateArgs(from, name, pool.Root, removeOld: true);
+        var op = new OperationViewModel(OperationKind.Retire, $"Retire the old {System.IO.Path.GetFileName(from.TrimEnd('\\'))}", SetupRunner.CommandLine(script, args)) { Target = System.IO.Path.Combine(pool.Root, name), PoolRoot = pool.Root };
+        _ = RunOperationAsync(op, (onLine, ct) => SetupRunner.RunAsync(script, args, pool.Repo, onLine, TimeSpan.FromHours(12), ct), refreshAfter: true);
+        return op;
+    }
+
+    public string MigrateCommandLine(string from, string name, bool removeOld) =>
+        _pool == null ? "" : SetupRunner.CommandLine(MigrateScript, SetupRunner.MigrateArgs(from, name, _pool.Root, removeOld));
+
+    /// <summary>
+    /// After a create or a move was stopped: removes the clone it was making, unless the clone had got far enough to
+    /// keep (<paramref name="keepKey"/> is set in its config: cow.startCommit once a create has finished,
+    /// cow.migrateFrom once a move has begun copying your files). Only ever called for a folder that did not exist
+    /// when the run started, so nothing that was there before can be touched.
+    /// </summary>
+    private async Task<string> CleanUpUnfinishedCloneAsync(Pool pool, string path, string keepKey)
+    {
+        try
+        {
+            var entries = await Task.Run(() => _git.ListWorktreesAsync(pool.Repo));
+            bool registered = entries.Any(e => e.Path.Equals(GitService.NormalizePath(path), StringComparison.OrdinalIgnoreCase));
+            if (!registered) return Directory.Exists(path) ? $"Stopped. A folder was left at {path}; Git does not know it, so it can simply be deleted." : "Stopped before anything was made.";
+            if (Directory.Exists(path) && (await Task.Run(() => _git.WorktreeConfigAsync(path, keepKey))).Length > 0)
+                return keepKey == "cow.migrateFrom"
+                    ? "Stopped. Run it again to pick up where it stopped; nothing was removed."
+                    : $"Stopped, but {path} had already been finished, so it is kept.";
+            var r = await Task.Run(() => _git.ForceRemoveWorktreeAsync(pool.Repo, path));
+            return r.Ok
+                ? "Stopped. The partly made worktree was removed again; nothing else changed."
+                : $"Stopped, but the partly made folder could not be removed ({r.Problem}). Remove it with:  git -C \"{pool.Repo}\" worktree remove --force \"{path}\"";
+        }
+        catch (Exception ex)
+        {
+            return $"Stopped. What was left at {path} could not be checked: {ex.Message}";
+        }
+    }
+
+    /// <summary>After setup was stopped while it made the base copy: removes that copy again (it did not exist before the run).</summary>
+    private async Task<string> CleanUpStoppedSetupAsync(string repo, string root, string basePath, bool rootExisted)
+    {
+        try
+        {
+            if (File.Exists(System.IO.Path.Combine(root, "cow-config.json"))) return "Stopped. The repository had been set up already; nothing was removed.";
+            var entries = await Task.Run(() => _git.ListWorktreesAsync(repo));
+            if (entries.Any(e => e.Path.Equals(GitService.NormalizePath(basePath), StringComparison.OrdinalIgnoreCase)))
+            {
+                var r = await Task.Run(() => _git.ForceRemoveWorktreeAsync(repo, basePath));
+                if (!r.Ok) return $"Stopped, but the partly made base copy could not be removed ({r.Problem}). Remove it with:  git -C \"{repo}\" worktree remove --force \"{basePath}\"";
+            }
+            foreach (var probe in new[] { ".clone-probe-a", ".clone-probe-b" })
+            {
+                try { File.Delete(System.IO.Path.Combine(root, probe)); } catch { }
+            }
+            try
+            {
+                if (!rootExisted && Directory.Exists(root) && !Directory.EnumerateFileSystemEntries(root).Any()) Directory.Delete(root);
+            }
+            catch { }
+            return "Stopped. The partly made base copy was removed again; nothing else changed.";
+        }
+        catch (Exception ex)
+        {
+            return $"Stopped. What was left at {basePath} could not be checked: {ex.Message}";
+        }
+    }
 
     private OperationViewModel StartScript(OperationKind kind, string title, IReadOnlyList<string> args, TimeSpan timeout)
     {
-        var op = new OperationViewModel(kind, title, _cow!.CommandLine(args));
+        var op = new OperationViewModel(kind, title, _cow!.CommandLine(args)) { PoolRoot = _pool?.Root };
         _ = RunScriptAsync(op, args, timeout, refreshAfter: true);
         return op;
     }
 
-    private async Task<OperationViewModel> RunScriptAsync(OperationViewModel op, IReadOnlyList<string> args, TimeSpan timeout, bool refreshAfter)
+    /// <summary>Runs cow_worktree.ps1 for the selected repository.</summary>
+    private Task<OperationViewModel> RunScriptAsync(OperationViewModel op, IReadOnlyList<string> args, TimeSpan timeout, bool refreshAfter, Func<Task<string>>? afterCancel = null)
+    {
+        var cow = _cow!;
+        return RunOperationAsync(op, (onLine, ct) => cow.RunAsync(args, onLine, null, timeout, ct), refreshAfter, afterCancel);
+    }
+
+    /// <summary>
+    /// Runs one script as an operation: its lines stream into the Activity list, it can be stopped where the
+    /// operation allows it, and the worktree list is read again afterwards.
+    /// </summary>
+    private async Task<OperationViewModel> RunOperationAsync(OperationViewModel op, Func<Action<string, bool>, CancellationToken, Task<ProcessResult>> run,
+        bool refreshAfter, Func<Task<string>>? afterCancel = null, Func<Task>? afterSuccess = null)
     {
         Operations.Insert(0, op);
         RaiseRunning();
         OperationStarted?.Invoke(op);
         var dq = _dispatcher;
-        var cow = _cow!;
         try
         {
-            var r = await Task.Run(() => cow.RunAsync(args, (line, isErr) => dq.TryEnqueue(() => op.AddLine(line, isErr)), null, timeout));
+            var r = await Task.Run(() => run((line, isErr) => dq.TryEnqueue(() => op.AddLine(line, isErr)), op.CancellationToken));
             op.Complete(r);
+        }
+        catch (OperationCanceledException)
+        {
+            string note;
+            try { note = afterCancel != null ? await afterCancel() : "Stopped."; }
+            catch (Exception ex) { note = "Stopped. " + ex.Message; }
+            op.CompleteCancelled(note);
         }
         catch (Exception ex)
         {
@@ -619,15 +857,22 @@ public sealed class MainViewModel : ObservableObject
         }
         AppLog.Write($"operation '{op.Title}' {op.StatusText} in {op.ElapsedText}: {op.CommandLine}");
         RaiseRunning();
+        if (op.Succeeded && afterSuccess != null)
+        {
+            try { await afterSuccess(); }
+            catch (Exception ex) { AppLog.Write($"after '{op.Title}': {ex.Message}"); }
+        }
         if (refreshAfter)
         {
             await RefreshAsync();
             OperationCompleted?.Invoke(op);
         }
+        op.MarkSettled();
         return op;
     }
 
-    private void RaiseRunning() => Raise(nameof(RunningCount), nameof(RunningText), nameof(RunningVisibility), nameof(RefreshBaseRunning), nameof(PruneRunning));
+    private void RaiseRunning() => Raise(nameof(RunningCount), nameof(RunningText), nameof(RunningVisibility), nameof(RefreshBaseRunning), nameof(PruneRunning),
+        nameof(SetupRunning), nameof(MigrateRunning), nameof(DriftVisibility));
 
     public WorktreeViewModel? FindRow(string pathOrName) =>
         _rows.TryGetValue(GitService.NormalizePath(pathOrName), out var r) ? r
@@ -639,6 +884,8 @@ public sealed class MainViewModel : ObservableObject
         poolsFile = CowHome.PoolsFile,
         registryError = _registryError,
         script = _registry.ScriptPath,
+        toolFolder = ToolDir,
+        integrations = Integrations == null ? null : new { claude = Integrations.Claude.State.ToString(), codex = Integrations.Codex.State.ToString(), schedule = Integrations.Schedule.State.ToString(), Integrations.ScheduleAt, Integrations.Drift },
         pools = Pools.Select(p => new { p.Name, p.Root, p.Repo, p.ConfigError, p.Id, p.StateMutexName, p.BuildMutexName, Task = p.TaskFullPath }),
         pool = _pool?.Name,
         refreshedAt = LastRefresh,
@@ -654,6 +901,7 @@ public sealed class MainViewModel : ObservableObject
             r.ShortSha,
             r.Subject,
             r.Changed,
+            r.Phantom,
             r.Untracked,
             r.Unpushed,
             r.Upstream,

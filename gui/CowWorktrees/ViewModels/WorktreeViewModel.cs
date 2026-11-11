@@ -47,6 +47,10 @@ public sealed class WorktreeViewModel : ObservableObject
     public int? Behind { get; private set; }
     public int Changed { get; private set; }
     public int Untracked { get; private set; }
+    /// <summary>Files that only look changed to Git (identical to the commit); not part of <see cref="Changed"/>.</summary>
+    public int Phantom { get; private set; }
+    public string PhantomNote => Phantom == 0 ? "" : $"{(Phantom == 1 ? "1 file only looks" : $"{Phantom} files only look")} changed to Git: identical to the commit, so not counted";
+    public Visibility PhantomVisibility => Theme.Vis(Phantom > 0);
     public int? Unpushed { get; private set; }
     public DateTime? LastActivity { get; private set; }
     public TimeSpan StatusTime { get; private set; }
@@ -68,9 +72,14 @@ public sealed class WorktreeViewModel : ObservableObject
     public bool IsBase => Kind == WorktreeKind.Base;
     public bool IsDetached => Branch == null;
     public bool IsDirty => Changed + Untracked > 0;
-    public bool HasUnpushed => (Unpushed ?? 0) > 0;
+    // The base is detached on purpose and sits on the commit of the branch it follows: nothing of it can be lost,
+    // also in a project that has no remote (where every commit counts as "on no remote").
+    public bool HasUnpushed => !IsBase && (Unpushed ?? 0) > 0;
     public bool AtRisk => IsDetached && HasUnpushed;   // commits reachable from no branch and no remote
     public bool CanRemove => IsCow && !IsMissing;
+    /// <summary>A full worktree outside the pool (not the project's main folder): it can be moved into a copy-on-write clone.</summary>
+    public bool CanMigrate => !IsMissing && Kind is WorktreeKind.Checkout or WorktreeKind.Codex or WorktreeKind.Claude;
+    public Visibility MigrateVisibility => Theme.Vis(CanMigrate);
     /// <summary>The pool's branchPrefix (worktree- by default): branches its agent hooks create, deleted on remove when unused.</summary>
     public string BranchPrefix { get; private set; } = "worktree-";
     public bool IsAgentBranch => BranchPrefix.Length > 0 && Branch?.StartsWith(BranchPrefix, StringComparison.Ordinal) == true;
@@ -160,7 +169,7 @@ public sealed class WorktreeViewModel : ObservableObject
     // ---- details pane --------------------------------------------------------------------------------------
     public string DetailHead => FullSha == null ? (HeadFromList ?? "") : $"{FullSha}";
     public string DetailCommitWhen => CommitTime is { } t ? $"{Author}, {t.LocalDateTime:yyyy-MM-dd HH:mm} ({Fmt.Relative(t.LocalDateTime)})" : "";
-    public string DetailChanges => !HasProbe ? "…" : IsDirty ? $"{Fmt.Plural(Changed, "changed file")}, {Fmt.Plural(Untracked, "untracked path")}" : "clean";
+    public string DetailChanges => !HasProbe ? "…" : (IsDirty ? $"{Fmt.Plural(Changed, "changed file")}, {Fmt.Plural(Untracked, "untracked path")}" : "clean") + (Phantom > 0 ? $"\n{PhantomNote}" : "");
     public string DetailUpstream => !HasProbe ? "…" : UpstreamGone ? $"its upstream was deleted" : Upstream == null ? (IsDetached ? "none (detached HEAD)" : "none") : $"{Upstream}: {Ahead ?? 0} ahead, {Behind ?? 0} behind";
     public string DetailUnpushed => Unpushed is { } n ? (n == 0 ? "none: every commit is on a remote" : $"{Fmt.Plural(n, "commit")} on no remote{(AtRisk ? " and no branch (detached HEAD): removing the worktree would leave them only in the reflog" : "")}") : "…";
     public string DetailActivity => LastActivity is { } t ? $"{t:yyyy-MM-dd HH:mm} ({Fmt.Relative(t)})" : "–";
@@ -228,8 +237,10 @@ public sealed class WorktreeViewModel : ObservableObject
             Behind = p.Behind;
             Changed = p.Changed;
             Untracked = p.Untracked;
+            Phantom = p.Phantom;
             StatusTime = p.StatusTime;
-            var lines = p.StatusLines.Take(StatusLineCap).ToList();
+            // real changes first; files that only look changed after them, marked "~"
+            var lines = p.StatusLines.Concat(p.PhantomLines.Select(f => " ~ " + f)).Take(StatusLineCap).ToList();
             if (!lines.SequenceEqual(StatusLines))
             {
                 StatusLines.Clear();

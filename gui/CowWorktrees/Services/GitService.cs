@@ -19,12 +19,30 @@ public sealed class WorktreeEntry
     public bool IsMain { get; set; }
 }
 
+/// <summary>What a folder is to Git: not a repository, a bare one, a linked worktree, or a project's main checkout.</summary>
+public sealed class RepoInfo
+{
+    public bool IsRepo { get; init; }
+    /// <summary>The project's main folder (where its .git folder is).</summary>
+    public string? MainCheckout { get; init; }
+    public string? TopLevel { get; init; }
+    public bool IsMainCheckout { get; init; }
+    public string? Branch { get; init; }
+    public string? SuggestedBaseRef { get; init; }
+    public string? Name { get; init; }
+    /// <summary>Why this folder cannot be used, in a sentence; null when it can.</summary>
+    public string? Problem { get; init; }
+}
+
 /// <summary>What one look at a worktree found. Null fields mean "could not tell".</summary>
 public sealed class WorktreeProbe
 {
     public string? Error { get; set; }
     public int Changed { get; set; }
     public int Untracked { get; set; }
+    /// <summary>Files that only look changed to Git (see MarkPhantomsAsync); not counted in <see cref="Changed"/>.</summary>
+    public int Phantom { get; set; }
+    public List<string> PhantomLines { get; } = new();
     public List<string> StatusLines { get; } = new();
     public string? Upstream { get; set; }
     public bool UpstreamGone { get; set; }
@@ -145,7 +163,12 @@ public sealed class GitService
 
         var (status, statusTime) = statusTask.Result;
         p.StatusTime = statusTime;
-        if (status.Ok) ParseStatus(status.StdOut, p);
+        if (status.Ok)
+        {
+            ParseStatus(status.StdOut, p);
+            try { await MarkPhantomsAsync(e.Path, p, ct).ConfigureAwait(false); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { AppLog.Write($"phantom check in {e.Path}: {ex.Message}"); }
+        }
         else p.Error = "git status: " + status.Problem;
 
         var log = logTask.Result;
@@ -192,6 +215,80 @@ public sealed class GitService
             else if (line.StartsWith("!! ", StringComparison.Ordinal)) { /* ignored files are not shown without --ignored */ }
             else p.Changed++;
         }
+    }
+
+    // ---- files that only look changed -----------------------------------------------------------------------
+    // A file committed as raw content while .gitattributes gives it a clean filter (Git LFS "files that should
+    // have been pointers", CRLF files under `text`) can show as " M" although it is identical to the commit. The
+    // scripts call such an entry a phantom (Get-CowStatus in scripts\CowCommon.ps1) and do not count it; this is
+    // the same test: " M", the file exists, and its raw hash equals the blob the index holds.
+
+    private const int MaxPhantomCandidates = 400;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Length, long Ticks, string Blob, bool Phantom)> PhantomCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private async Task MarkPhantomsAsync(string worktree, WorktreeProbe p, CancellationToken ct)
+    {
+        // " M path": nothing staged, modified in the working tree. Quoted paths (unusual characters) are left as real changes.
+        var candidates = p.StatusLines.Where(l => l.Length > 3 && l[0] == ' ' && l[1] == 'M' && l[2] == ' ' && l[3] != '"')
+            .Select(l => l[3..]).Distinct(StringComparer.Ordinal).ToList();
+        if (candidates.Count == 0 || candidates.Count > MaxPhantomCandidates) return;
+
+        var phantoms = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var chunk in candidates.Chunk(40))
+        {
+            // the blob each path has in the index
+            var ls = await RunAsync(worktree, new[] { "--literal-pathspecs", "ls-files", "-s", "-z", "--" }.Concat(chunk), TimeSpan.FromSeconds(60), ct).ConfigureAwait(false);
+            if (!ls.Ok) continue;
+            var blob = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var rec in ls.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int tab = rec.IndexOf('\t');
+                var head = tab > 0 ? rec[..tab].Split(' ') : Array.Empty<string>();
+                if (head.Length == 3 && head[2] == "0") blob[rec[(tab + 1)..]] = head[1];
+            }
+
+            var toHash = new List<string>();
+            foreach (var rel in chunk)
+            {
+                if (!blob.TryGetValue(rel, out var oid)) continue;
+                var full = Path.Combine(worktree, rel.Replace('/', '\\'));
+                FileInfo fi;
+                try { fi = new FileInfo(full); } catch { continue; }
+                if (!fi.Exists) continue;
+                if (PhantomCache.TryGetValue(full, out var c) && c.Length == fi.Length && c.Ticks == fi.LastWriteTimeUtc.Ticks && c.Blob == oid)
+                {
+                    if (c.Phantom) phantoms.Add(rel);
+                }
+                else toHash.Add(rel);
+            }
+            if (toHash.Count == 0) continue;
+
+            var hash = await RunAsync(worktree, new[] { "hash-object", "--no-filters", "--" }.Concat(toHash), TimeSpan.FromMinutes(5), ct).ConfigureAwait(false);
+            var oids = hash.OutLines;
+            if (!hash.Ok || oids.Length != toHash.Count) continue;   // an unreadable file: everything in this group stays a real change
+            for (int i = 0; i < toHash.Count; i++)
+            {
+                var rel = toHash[i];
+                var full = Path.Combine(worktree, rel.Replace('/', '\\'));
+                bool same = string.Equals(oids[i].Trim(), blob[rel], StringComparison.OrdinalIgnoreCase);
+                try
+                {
+                    var fi = new FileInfo(full);
+                    PhantomCache[full] = (fi.Length, fi.LastWriteTimeUtc.Ticks, blob[rel], same);
+                }
+                catch { }
+                if (same) phantoms.Add(rel);
+            }
+        }
+        if (phantoms.Count == 0) return;
+
+        // Not changes: take them out of the count, and list them last, marked.
+        var real = p.StatusLines.Where(l => !(l.Length > 3 && l.StartsWith(" M ", StringComparison.Ordinal) && phantoms.Contains(l[3..]))).ToList();
+        p.Phantom = p.StatusLines.Count - real.Count;
+        p.Changed = Math.Max(0, p.Changed - p.Phantom);
+        p.StatusLines.Clear();
+        p.StatusLines.AddRange(real);
+        p.PhantomLines.AddRange(phantoms.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
     }
 
     // "main...origin/main [ahead 1, behind 2]", "x...origin/x [gone]", "HEAD (no branch)", "No commits yet on x"
@@ -302,6 +399,60 @@ public sealed class GitService
         local.Sort(StringComparer.OrdinalIgnoreCase);
         remote.Sort(StringComparer.OrdinalIgnoreCase);
         return (local, remote);
+    }
+
+    /// <summary>A setting from the worktree's own config (cow.startCommit, cow.migrateFrom ...); "" when it is not set.</summary>
+    public async Task<string> WorktreeConfigAsync(string worktree, string key)
+    {
+        var r = await RunAsync(worktree, new[] { "config", "--worktree", "--get", key }, TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+        return r.Ok ? r.StdOut.Trim() : "";
+    }
+
+    /// <summary>
+    /// `git worktree remove -f -f`: only for a worktree this app was making and stopped, before anything of the
+    /// user's could be in it (the scripts do the same when a clone fails halfway). Force twice: a worktree whose
+    /// creation was cut off is still locked by Git itself ("initializing"), and one -f does not remove a locked one.
+    /// </summary>
+    public Task<ProcessResult> ForceRemoveWorktreeAsync(string repo, string path) =>
+        RunAsync(repo, new[] { "worktree", "remove", "-f", "-f", path }, TimeSpan.FromMinutes(20));
+
+    /// <summary>What a folder is to Git, for "Choose your project".</summary>
+    public async Task<RepoInfo> InspectAsync(string folder)
+    {
+        if (!Directory.Exists(folder)) return new RepoInfo { Problem = "That folder does not exist." };
+        var common = await RunAsync(folder, new[] { "rev-parse", "--path-format=absolute", "--git-common-dir" }, TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+        if (!common.Ok) return new RepoInfo { Problem = "This folder is not a Git repository. Choose the folder of a project that is under Git (it has a hidden .git folder in it)." };
+        var bare = await RunAsync(folder, new[] { "rev-parse", "--is-bare-repository" }, TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+        if (bare.StdOut.Trim() == "true") return new RepoInfo { IsRepo = true, Problem = "This is a bare repository: it has no files checked out. Choose a normal checkout of the project." };
+
+        string commonDir = NormalizePath(common.StdOut.Trim());
+        string main = commonDir.EndsWith(@"\.git", StringComparison.OrdinalIgnoreCase) ? commonDir[..^5] : commonDir;
+        var top = await RunAsync(folder, new[] { "rev-parse", "--show-toplevel" }, TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+        string topLevel = top.Ok ? NormalizePath(top.StdOut.Trim()) : main;
+        var head = await RunAsync(main, new[] { "symbolic-ref", "--quiet", "--short", "HEAD" }, TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+        string? branch = head.Ok ? head.StdOut.Trim() : null;
+
+        // The same order setup.ps1 uses: the remote's default branch, the current branch's upstream, the current branch.
+        string? baseRef = null;
+        var originHead = await RunAsync(main, new[] { "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD" }, TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+        if (originHead.Ok && originHead.StdOut.Trim().Length > 0) baseRef = originHead.StdOut.Trim();
+        if (baseRef == null)
+        {
+            var upstream = await RunAsync(main, new[] { "rev-parse", "--abbrev-ref", "@{u}" }, TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+            if (upstream.Ok && upstream.StdOut.Trim().Length > 0) baseRef = upstream.StdOut.Trim();
+        }
+        baseRef ??= branch;
+
+        return new RepoInfo
+        {
+            IsRepo = true,
+            MainCheckout = main,
+            TopLevel = topLevel,
+            IsMainCheckout = string.Equals(topLevel, main, StringComparison.OrdinalIgnoreCase),
+            Branch = branch,
+            SuggestedBaseRef = baseRef,
+            Name = Path.GetFileName(main.TrimEnd('\\')),
+        };
     }
 
     /// <summary>Up to <paramref name="max"/> commits of HEAD that are on no remote, newest first.</summary>

@@ -50,9 +50,8 @@
                 <SelectorBarItem x:Name="TabActivity" Text="Activity" ToolTipService.ToolTip="Ctrl+3" />
             </SelectorBar>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center" Visibility="{x:Bind VM.PoolPickerVisibility, Mode=OneWay}">
-                <TextBlock Text="Pool" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 <ComboBox x:Name="PoolBox" ItemsSource="{x:Bind VM.Pools}" SelectedItem="{x:Bind VM.SelectedPool, Mode=OneWay}" SelectionChanged="PoolBox_SelectionChanged"
-                          MinWidth="170" AutomationProperties.Name="Pool" ToolTipService.ToolTip="Which repository's pool to show" />
+                          MinWidth="150" AutomationProperties.Name="Repository" ToolTipService.ToolTip="Which repository to show" />
             </StackPanel>
             <CommandBar Grid.Column="2" DefaultLabelPosition="Right" Background="Transparent" OverflowButtonVisibility="Collapsed" VerticalAlignment="Center">
                 <AppBarButton Icon="Refresh" Label="Refresh" Click="Refresh_Click" ToolTipService.ToolTip="Look at every worktree again now (F5)">
@@ -61,28 +60,66 @@
                     </AppBarButton.KeyboardAccelerators>
                 </AppBarButton>
                 <AppBarButton Icon="Add" Label="New worktree" Click="New_Click" IsEnabled="{x:Bind VM.HasUsablePool, Mode=OneWay}" ToolTipService.ToolTip="New copy-on-write worktree (Ctrl+N)" />
-                <AppBarButton Icon="Cut" Label="Prune…" Click="Prune_Click" IsEnabled="{x:Bind VM.HasUsablePool, Mode=OneWay}" ToolTipService.ToolTip="Preview with -Prune -DryRun, then prune idle worktrees with nothing to lose" />
-                <AppBarButton Icon="Sync" Label="Refresh base…" Click="RefreshBase_Click" IsEnabled="{x:Bind VM.HasUsablePool, Mode=OneWay}" ToolTipService.ToolTip="cow_worktree.ps1 -RefreshBase -Fetch -Build (15+ minutes)" />
+                <AppBarButton Icon="Cut" Label="Prune…" Click="Prune_Click" IsEnabled="{x:Bind VM.HasUsablePool, Mode=OneWay}" ToolTipService.ToolTip="See which idle worktrees have nothing to lose, then remove them" />
+                <AppBarButton Icon="Sync" Label="Refresh base…" Click="RefreshBase_Click" IsEnabled="{x:Bind VM.HasUsablePool, Mode=OneWay}" ToolTipService.ToolTip="Bring the base copy up to date with the project's main branch" />
                 <AppBarSeparator />
-                <AppBarElementContainer VerticalContentAlignment="Center" Padding="4,0,4,0">
-                    <ComboBox x:Name="IntervalBox" SelectionChanged="IntervalBox_SelectionChanged" MinWidth="150" ToolTipService.ToolTip="How often the list refreshes by itself">
-                        <ComboBoxItem Content="Every 30 s" Tag="30" />
-                        <ComboBoxItem Content="Every 45 s" Tag="45" />
-                        <ComboBoxItem Content="Every 60 s" Tag="60" />
-                        <ComboBoxItem Content="Every 2 min" Tag="120" />
-                        <ComboBoxItem Content="Every 5 min" Tag="300" />
-                        <ComboBoxItem Content="Auto-refresh off" Tag="0" />
-                    </ComboBox>
-                </AppBarElementContainer>
+                <AppBarButton Icon="Setting" Label="Repository" Click="RepositorySettings_Click" IsEnabled="{x:Bind VM.HasUsablePool, Mode=OneWay}" AutomationProperties.AutomationId="Main.RepositorySettings"
+                              ToolTipService.ToolTip="Repository settings: connections, options, removal" />
+                <AppBarButton Icon="More" Label="More" LabelPosition="Collapsed" AutomationProperties.Name="More" AutomationProperties.AutomationId="Main.More" ToolTipService.ToolTip="Add a repository, app settings">
+                    <AppBarButton.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                            <MenuFlyoutItem Text="Add repository…" Click="AddRepository_Click" AutomationProperties.AutomationId="Main.AddRepository">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE710;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutSubItem x:Name="IntervalMenu" Text="Refresh the list">
+                                <MenuFlyoutSubItem.Icon><FontIcon Glyph="&#xE72C;" /></MenuFlyoutSubItem.Icon>
+                                <RadioMenuFlyoutItem Text="Every 30 s" Tag="30" GroupName="Interval" Click="Interval_Click" />
+                                <RadioMenuFlyoutItem Text="Every 45 s" Tag="45" GroupName="Interval" Click="Interval_Click" />
+                                <RadioMenuFlyoutItem Text="Every 60 s" Tag="60" GroupName="Interval" Click="Interval_Click" />
+                                <RadioMenuFlyoutItem Text="Every 2 min" Tag="120" GroupName="Interval" Click="Interval_Click" />
+                                <RadioMenuFlyoutItem Text="Every 5 min" Tag="300" GroupName="Interval" Click="Interval_Click" />
+                                <RadioMenuFlyoutItem Text="Only when I press Refresh" Tag="0" GroupName="Interval" Click="Interval_Click" />
+                            </MenuFlyoutSubItem>
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem Text="Check this PC…" Click="CheckPc_Click">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE9D9;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="App settings and About…" Click="AppSettings_Click" AutomationProperties.AutomationId="Main.AppSettings">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE946;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                        </MenuFlyout>
+                    </AppBarButton.Flyout>
+                </AppBarButton>
             </CommandBar>
         </Grid>
 
-        <!-- Result of the last create / remove / prune / refresh -->
-        <InfoBar x:Name="OpInfoBar" Grid.Row="2" Margin="12,0,12,10" IsOpen="False" IsClosable="True">
-            <InfoBar.ActionButton>
-                <Button x:Name="OpInfoAction" Content="Show output" Click="OpInfoAction_Click" />
-            </InfoBar.ActionButton>
-        </InfoBar>
+        <StackPanel Grid.Row="2">
+            <!-- A newer version is out -->
+            <InfoBar x:Name="UpdateInfoBar" Margin="12,0,12,10" IsOpen="False" IsClosable="True" Severity="Informational" Closed="UpdateInfoBar_Closed">
+                <InfoBar.ActionButton>
+                    <Button x:Name="UpdateNowButton" Content="Update" Style="{StaticResource AccentButtonStyle}" Click="UpdateNow_Click" AutomationProperties.AutomationId="Main.UpdateNow" />
+                </InfoBar.ActionButton>
+                <InfoBar.Content>
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,12">
+                        <Button Content="What's new" Click="UpdateNotes_Click" />
+                        <Button x:Name="UpdateSkipButton" Content="Skip this version" Click="UpdateSkip_Click" />
+                    </StackPanel>
+                </InfoBar.Content>
+            </InfoBar>
+            <!-- Something a repository is connected to has gone missing or points elsewhere -->
+            <InfoBar x:Name="DriftInfoBar" Margin="12,0,12,10" IsOpen="True" IsClosable="False" Severity="Warning" Title="This repository's connections need attention"
+                     Message="{x:Bind VM.DriftText, Mode=OneWay}" Visibility="{x:Bind VM.DriftVisibility, Mode=OneWay}">
+                <InfoBar.ActionButton>
+                    <Button Content="Fix it" Click="FixDrift_Click" AutomationProperties.AutomationId="Main.FixDrift" ToolTipService.ToolTip="Run setup again for this repository with its current settings" />
+                </InfoBar.ActionButton>
+            </InfoBar>
+            <!-- Result of the last create / remove / prune / refresh -->
+            <InfoBar x:Name="OpInfoBar" Margin="12,0,12,10" IsOpen="False" IsClosable="True">
+                <InfoBar.ActionButton>
+                    <Button x:Name="OpInfoAction" Content="Show output" Click="OpInfoAction_Click" />
+                </InfoBar.ActionButton>
+            </InfoBar>
+        </StackPanel>
 
         <!-- ============================== Worktrees ============================== -->
         <Grid x:Name="WorktreesPage" Grid.Row="3" Padding="12,0,12,0" RowSpacing="10">
@@ -336,17 +373,26 @@
                                 <Button Grid.Column="1" Click="OpenTerminal_Click" AutomationProperties.Name="Terminal" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
                                     <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE756;" FontSize="14" /><TextBlock Text="Terminal" /></StackPanel>
                                 </Button>
-                                <Button Grid.Row="1" Click="OpenEditor_Click" AutomationProperties.Name="Open in editor" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" IsEnabled="{x:Bind VM.EditorAvailable}">
-                                    <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE943;" FontSize="14" /><TextBlock Text="{x:Bind VM.OpenInEditorLabel}" /></StackPanel>
+                                <Button Grid.Row="1" Click="OpenEditor_Click" AutomationProperties.Name="Open in editor" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" IsEnabled="{x:Bind VM.EditorAvailable, Mode=OneWay}">
+                                    <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE943;" FontSize="14" /><TextBlock Text="{x:Bind VM.OpenInEditorLabel, Mode=OneWay}" /></StackPanel>
                                 </Button>
                                 <Button Grid.Row="1" Grid.Column="1" Click="CopyPath_Click" AutomationProperties.Name="Copy path" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" ToolTipService.ToolTip="Copy the path (Ctrl+C in the list)">
                                     <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE8C8;" FontSize="14" /><TextBlock Text="Copy path" /></StackPanel>
                                 </Button>
                             </Grid>
 
+                            <Button Click="Migrate_Click" AutomationProperties.Name="Move to copy-on-write" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Margin="0,-8,0,0"
+                                    Visibility="{x:Bind VM.SelectedWorktree.MigrateVisibility, Mode=OneWay, FallbackValue=Collapsed}"
+                                    ToolTipService.ToolTip="This is a full copy of the project. Move it into a copy-on-write clone to get its disk space back; everything in it is carried over and checked.">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE8DE;" FontSize="14" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                    <TextBlock Text="Move to copy-on-write…" />
+                                </StackPanel>
+                            </Button>
+
                             <Button Click="Remove_Click" AutomationProperties.Name="Remove worktree" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Margin="0,-8,0,0"
                                     Visibility="{x:Bind VM.SelectedWorktree.RemoveVisibility, Mode=OneWay, FallbackValue=Collapsed}"
-                                    ToolTipService.ToolTip="cow_worktree.ps1 -Remove -Name ... (Del; plain git worktree remove: refused when there are changes)">
+                                    ToolTipService.ToolTip="Remove this worktree (Del). A worktree with changed or untracked files is refused, so nothing is lost by accident.">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <FontIcon Glyph="&#xE74D;" FontSize="14" Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
                                     <TextBlock Text="Remove worktree…" />
@@ -520,6 +566,11 @@
                         <TextBlock Text="{x:Bind VM.SelectedOperation.CommandLine, Mode=OneWay, FallbackValue=''}" FontFamily="{StaticResource MonoFont}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+                        <Button Click="StopOperation_Click" AutomationProperties.Name="Stop" AutomationProperties.AutomationId="Activity.Stop"
+                                Visibility="{x:Bind VM.SelectedOperation.CancelVisibility, Mode=OneWay, FallbackValue=Collapsed}"
+                                ToolTipService.ToolTip="Stop this run. What it was making is removed again, or can be picked up later.">
+                            <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE71A;" FontSize="14" /><TextBlock Text="Stop" /></StackPanel>
+                        </Button>
                         <CheckBox x:Name="AutoScrollBox" Content="Follow output" IsChecked="True" MinWidth="0" />
                         <Button Click="CopyOutput_Click" AutomationProperties.Name="Copy output" ToolTipService.ToolTip="Copy the whole output">
                             <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE8C8;" FontSize="14" /><TextBlock Text="Copy" /></StackPanel>
@@ -551,8 +602,9 @@
                     <TextBlock Text="{x:Bind VM.EmptyTitle, Mode=OneWay}" Style="{StaticResource SubtitleTextBlockStyle}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
                     <TextBlock Text="{x:Bind VM.EmptyText, Mode=OneWay}" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsTextSelectionEnabled="True" />
                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                        <Button Content="Look again" Click="Refresh_Click" Style="{StaticResource AccentButtonStyle}" ToolTipService.ToolTip="Read pools.json and the pool's cow-config.json again (F5)" />
-                        <Button Content="Open folder" Click="OpenEmptyStateFolder_Click" ToolTipService.ToolTip="Open the pool folder, or the folder pools.json lives in" />
+                        <Button x:Name="EmptyPrimaryButton" Content="{x:Bind VM.EmptyPrimaryLabel, Mode=OneWay}" Click="EmptyPrimary_Click" Style="{StaticResource AccentButtonStyle}" MinWidth="130"
+                                AutomationProperties.AutomationId="Main.GetStarted" />
+                        <Button Content="Open folder" Click="OpenEmptyStateFolder_Click" ToolTipService.ToolTip="Open the repository's folder, or the folder this app keeps its files in" />
                     </StackPanel>
                 </StackPanel>
             </Grid>
@@ -578,5 +630,8 @@
                 </StackPanel>
             </HyperlinkButton>
         </Grid>
+
+        <!-- ============================== Walkthrough and settings, over everything below the title bar ============================== -->
+        <Grid x:Name="OverlayHost" Grid.Row="1" Grid.RowSpan="4" Visibility="Collapsed" />
     </Grid>
 </Window>

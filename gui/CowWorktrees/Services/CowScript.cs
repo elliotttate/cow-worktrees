@@ -10,12 +10,16 @@ public sealed class CowListRow
     public string? Branch { get; set; }
     public double IdleDays { get; set; }
     public int Changed { get; set; }
+    /// <summary>Files that only look changed to Git; the script leaves them out of <see cref="Changed"/> (1.0.1 and later).</summary>
+    public int Phantom { get; set; }
     public int Untracked { get; set; }
     /// <summary>Commits since the worktree was made (null when it has no cow.startCommit).</summary>
     public int? Commits { get; set; }
     public int Unpushed { get; set; }
     public bool Locked { get; set; }
     public string Path { get; set; } = "";
+    /// <summary>cow.startCommit; null when the worktree has none (1.0.x wrote {} for that, which is read as null too).</summary>
+    [JsonConverter(typeof(LenientStringConverter))]
     public string? Start { get; set; }
 
     /// <summary>The reasons `-Prune -OlderThanDays n` would keep this worktree, the same tests the script makes.</summary>
@@ -29,6 +33,19 @@ public sealed class CowListRow
         if (Unpushed > 0 && Commits != 0) why.Add($"{Unpushed} commits not on any remote");
         return why;
     }
+}
+
+/// <summary>A string, or null for anything that is not one (PowerShell 5.1 writes "no value" as an empty object).</summary>
+public sealed class LenientStringConverter : JsonConverter<string?>
+{
+    public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String) return reader.GetString() is { Length: > 0 } s ? s : null;
+        reader.Skip();
+        return null;
+    }
+
+    public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options) => writer.WriteStringValue(value);
 }
 
 /// <summary>

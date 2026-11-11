@@ -4,13 +4,15 @@ compare_status.ps1 - checks what the app shows against plain git, for every work
 
 Runs the app hidden with --dump (on -Pool, or the pool it showed last), then for each worktree in the dump counts `git status --porcelain`
 lines (changed = not "??", untracked = "??") and `git rev-list --count HEAD --not --remotes`, and compares.
+Files that only look changed (the app's Phantom count: raw content under a clean filter, identical to the commit)
+are in git's count and not in the app's, so the comparison is app changed + phantom = git changed.
 A worktree an agent is editing right now can differ by the time git runs; rerun if one row is off by a file.
 Exit 0 when every row matches.
 #>
 param(
     [string]$Pool,      # pool name or root; default: the one the app showed last
     [string]$CowHome,   # folder holding pools.json, when not the default
-    [string]$Exe = (Join-Path $PSScriptRoot '..\CowWorktrees\bin\x64\Debug\net8.0-windows10.0.19041.0\win-x64\CowWorktrees.exe')
+    [string]$Exe = (Join-Path $PSScriptRoot '..\publish\CowWorktrees.exe')
 )
 $ErrorActionPreference = 'Stop'
 $dumpFile = Join-Path $env:TEMP ("cow-worktrees-dump-{0}.json" -f [guid]::NewGuid().ToString('N'))
@@ -30,10 +32,10 @@ $rows = foreach ($w in $dump.worktrees) {
     $unpushed = [int](git -C $w.Path rev-list --count HEAD --not --remotes 2>$null)
     [pscustomobject]@{
         Name         = $w.Name
-        AppChanged   = $w.Changed;   GitChanged   = $changed
+        AppChanged   = $w.Changed;   AppPhantom = [int]$w.Phantom; GitChanged = $changed
         AppUntracked = $w.Untracked; GitUntracked = $untracked
         AppUnpushed  = $w.Unpushed;  GitUnpushed  = $unpushed
-        Match        = ($w.Changed -eq $changed -and $w.Untracked -eq $untracked -and $w.Unpushed -eq $unpushed)
+        Match        = (($w.Changed + [int]$w.Phantom) -eq $changed -and $w.Untracked -eq $untracked -and $w.Unpushed -eq $unpushed)
     }
 }
 $rows | Format-Table -AutoSize | Out-String -Width 200

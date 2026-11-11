@@ -5,7 +5,8 @@ namespace CowWorktrees.Services;
 
 /// <summary>
 /// Where cow-worktrees keeps its machine-wide files: %LOCALAPPDATA%\cow-worktrees, or COW_WORKTREES_HOME
-/// (the same rule as scripts\CowCommon.ps1). pools.json is written by setup.ps1; this app only reads it.
+/// (the same rule as scripts\CowCommon.ps1). pools.json is written by setup.ps1 and uninstall.ps1, which this app
+/// runs; the app itself only reads it.
 /// </summary>
 public static class CowHome
 {
@@ -24,8 +25,11 @@ public sealed class PoolRegistry
     public string ToolDir { get; init; } = "";
     public List<Pool> Pools { get; init; } = new();
 
-    /// <summary>scripts\cow_worktree.ps1 under toolDir.</summary>
-    public string ScriptPath => string.IsNullOrWhiteSpace(ToolDir) ? "" : Path.Combine(ToolDir, "scripts", "cow_worktree.ps1");
+    /// <summary>The tool folder to run scripts from: the one this app sits in, else toolDir (see <see cref="ToolFolder"/>).</summary>
+    public string? ResolvedToolDir => ToolFolder.Resolve(ToolDir);
+
+    /// <summary>scripts\cow_worktree.ps1 in the tool folder; "" when there is none.</summary>
+    public string ScriptPath => ToolFolder.Script(ResolvedToolDir, "scripts", "cow_worktree.ps1") ?? "";
 
     /// <summary>Reads pools.json; a missing file is an empty registry, a broken one an error.</summary>
     public static (PoolRegistry Registry, string? Error) Load()
@@ -98,8 +102,8 @@ public sealed class Pool
     {
         try
         {
-            if (!Directory.Exists(Root)) throw new InvalidOperationException($"the pool folder {Root} does not exist");
-            if (!File.Exists(ConfigFile)) throw new InvalidOperationException($"there is no cow-config.json in {Root} (run setup.ps1 for this repository)");
+            if (!Directory.Exists(Root)) throw new InvalidOperationException($"The folder {Root} does not exist. If it is on a drive that is not connected right now, connect it and look again.");
+            if (!File.Exists(ConfigFile)) throw new InvalidOperationException($"There is no cow-config.json in {Root}, so its settings are missing. Set the repository up again to write a new one.");
             Config = PoolConfig.Parse(File.ReadAllText(ConfigFile), Root);
             if (string.IsNullOrWhiteSpace(Config.Repo)) throw new InvalidOperationException($"{ConfigFile} has no repo");
             ConfigError = null;
@@ -133,6 +137,9 @@ public sealed class PoolConfig
     public double FallbackMinFreeGB { get; init; } = 120;
     public int PruneDays { get; init; } = 7;
     public BuildConfig? Build { get; init; }
+    /// <summary>What setup.ps1 was last asked to connect (1.1.0 and later); null for a repository set up by 1.0.x.</summary>
+    public IntegrationChoices? Integrations { get; init; }
+    public int IntegrationRevision { get; init; }
 
     public static PoolConfig Parse(string json, string root)
     {
@@ -157,8 +164,25 @@ public sealed class PoolConfig
             FallbackMinFreeGB = Json.Get(r, "fallbackMinFreeGB") is { ValueKind: JsonValueKind.Number } f ? f.GetDouble() : 120,
             PruneDays = Json.Get(r, "pruneDays") is { ValueKind: JsonValueKind.Number } d ? (int)Math.Round(d.GetDouble()) : 7,
             Build = build,
+            Integrations = Json.Get(r, "integrations") is { ValueKind: JsonValueKind.Object } i
+                ? new IntegrationChoices
+                {
+                    Claude = Json.Get(i, "claude") is { ValueKind: JsonValueKind.True },
+                    Codex = Json.Get(i, "codex") is { ValueKind: JsonValueKind.True },
+                    ScheduleAt = Json.String(i, "scheduleAt") is { Length: > 0 } at ? at : null,
+                }
+                : null,
+            IntegrationRevision = Json.Get(r, "integrationRevision") is { ValueKind: JsonValueKind.Number } rev ? rev.GetInt32() : 0,
         };
     }
+}
+
+/// <summary>cow-config.json "integrations": { claude, codex, scheduleAt ("HH:mm", or null for no daily task) }.</summary>
+public sealed class IntegrationChoices
+{
+    public bool Claude { get; init; }
+    public bool Codex { get; init; }
+    public string? ScheduleAt { get; init; }
 }
 
 public sealed class BuildConfig

@@ -22,6 +22,18 @@ public sealed class AppSettings
     /// <summary>Editor for "Open in editor"; empty means VS Code if installed, else Cursor.</summary>
     public string EditorPath { get; set; } = "";
 
+    /// <summary>Look for a new version on GitHub once a day. The check never downloads or installs anything by itself.</summary>
+    public bool CheckForUpdates { get; set; } = true;
+    public DateTime? LastUpdateCheck { get; set; }
+    /// <summary>A version the person chose to skip: its banner is not shown again.</summary>
+    public string SkippedVersion { get; set; } = "";
+    /// <summary>The version that ran last, so the first start of a new one can say what changed.</summary>
+    public string LastRunVersion { get; set; } = "";
+    /// <summary>Shows "Create one for me" for a missing Dev Drive (the new_dev_drive.ps1 script). Off until that script has been proven.</summary>
+    public bool ExperimentalDevDrive { get; set; }
+    /// <summary>The walkthrough opens by itself on the first start with no repository; this remembers that it did.</summary>
+    public bool WalkthroughOffered { get; set; }
+
     // ---- remembered view state (written by the app) ----------------------------------------------------------
     /// <summary>Relative widths of the list columns (Worktree, Branch, HEAD, Working tree, Unpushed, Last activity).</summary>
     public double[]? ColumnWeights { get; set; }

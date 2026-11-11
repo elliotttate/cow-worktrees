@@ -41,6 +41,9 @@ public static class Theme
     public static Brush Secondary => Get("TextFillColorSecondaryBrush");
     public static Brush Primary => Get("TextFillColorPrimaryBrush");
     public static Brush Transparent { get; } = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+    public static Brush Accent => Get("AccentFillColorDefaultBrush");
+    public static Brush OnAccent => Get("TextOnAccentFillColorPrimaryBrush");
+    public static Brush SubtleFill => Get("SubtleFillColorSecondaryBrush");
 
     public static Brush For(Severity s) => s switch
     {
