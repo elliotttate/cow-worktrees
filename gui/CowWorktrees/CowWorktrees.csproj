@@ -22,7 +22,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <Version>1.2.0</Version>
+    <Version>1.2.1</Version>
     <Product>CoW Worktrees</Product>
     <AssemblyTitle>CoW Worktrees</AssemblyTitle>
     <Description>Set up, watch and manage copy-on-write Git worktrees.</Description>

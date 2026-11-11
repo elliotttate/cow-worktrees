@@ -652,7 +652,7 @@ adds them, the ones of the views in `Views\` included, and `build.ps1` checks th
 ### A release
 
 ```powershell
-.\release.ps1 -Version 1.2.0     # in the repository's top folder
+.\release.ps1 -Version 1.2.1     # in the repository's top folder
 ```
 
 `release.ps1` runs `gui\build.ps1 -Version <version>`, then `package.ps1`, which stages the release in
