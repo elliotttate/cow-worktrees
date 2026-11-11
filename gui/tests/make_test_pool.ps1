@@ -11,9 +11,15 @@ make_test_pool.ps1 - builds a throwaway setup for trying the GUI without a real 
   <Dir>\home\pools.json   registry naming both pools; toolDir = <Dir>\tool (no scripts there, so actions are off)
 
 Then run the app with COW_WORKTREES_HOME=<Dir>\home. Plain `git worktree add` stands in for block clones; the
-GUI only reads Git and the pool's files, so it cannot tell. Nothing outside <Dir> is touched.
+list only reads Git and the pool's files, so it cannot tell. The Disk space view can: these worktrees are full
+copies, and it says so. For real clones put <Dir> on a Dev Drive and make them with
+scripts\cow_worktree.ps1 -Root <Dir>\pool -Name <name>, as gui\tests\disk_space.ps1 does.
+Nothing outside <Dir> is touched.
+
+-PayloadMB <n> commits that many megabytes of random data (assets\part-NN.bin, 4 MB each) with the first commit,
+so the folders have a size worth measuring.
 #>
-param([Parameter(Mandatory)][string]$Dir)
+param([Parameter(Mandatory)][string]$Dir, [int]$PayloadMB = 0)
 $ErrorActionPreference = 'Stop'
 if (Test-Path -LiteralPath $Dir) { throw "$Dir already exists; pick a new folder" }
 New-Item -ItemType Directory -Force $Dir | Out-Null
@@ -27,8 +33,15 @@ function G {
 
 G init --quiet --bare -b main "$Dir\remote.git"
 G clone --quiet "$Dir\remote.git" "$Dir\repo"
+G -C "$Dir\repo" config extensions.worktreeConfig true   # as setup.ps1 does; cow_worktree.ps1 needs it to make a clone
 Set-Content "$Dir\repo\README.md" 'test repository for the CoW Worktrees GUI'
 G -C "$Dir\repo" add README.md
+if ($PayloadMB -gt 0) {
+    New-Item -ItemType Directory -Force "$Dir\repo\assets" | Out-Null
+    $rng = [Security.Cryptography.RandomNumberGenerator]::Create(); $part = New-Object byte[] (4MB)
+    for ($i = 1; $i -le [math]::Ceiling($PayloadMB / 4); $i++) { $rng.GetBytes($part); [IO.File]::WriteAllBytes(("$Dir\repo\assets\part-{0:00}.bin" -f $i), $part) }
+    G -C "$Dir\repo" add assets
+}
 G -C "$Dir\repo" -c user.name=test -c user.email=test@example.com commit --quiet -m 'first commit'
 # A file committed as raw content under a clean filter (a stand-in for Git LFS "files that should have been
 # pointers"): identical to the commit, but git status reports it as modified once it re-hashes it.

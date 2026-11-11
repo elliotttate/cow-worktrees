@@ -67,6 +67,28 @@ public sealed class WorktreeViewModel : ObservableObject
     public List<string> PruneKeepReasons { get; private set; } = new();
     public bool WouldPrune => IsCow && Cow != null && PruneKeepReasons.Count == 0;
 
+    // ---- from the last disk-space measurement (Base tab) ------------------------------------------------------
+    /// <summary>On the drive the pool is on: only those folders can share space with the base, and only those are measured.</summary>
+    public bool OnPoolDrive { get; private set; }
+    public DiskFolderUsage? Disk { get; private set; }
+    public DateTime? DiskMeasuredAt { get; private set; }
+    private bool _diskHasBase;
+    public Visibility DiskDetailVisibility => Theme.Vis(OnPoolDrive && !IsMissing);
+    public string DetailDisk => Disk is not { Error: null } d ? "not measured yet"
+        : $"{Fmt.Bytes(d.OwnBytes)} of its own, {Fmt.Bytes(d.SharedBytes)} shared";
+    public string DetailDiskNote
+    {
+        get
+        {
+            if (Disk is not { Error: null } d) return "Base tab, Disk space: Measure shows how much of this folder is its own and how much it shares.";
+            string when = $"Measured {Fmt.Relative(DiskMeasuredAt)}.";
+            string size = $"Explorer shows the folder as {Fmt.Bytes(d.SizeBytes)}";
+            if (IsBase) return $"{size}. Worktrees share its files until they change. {when}";
+            if (_diskHasBase && d.IsFullCopy && Kind != WorktreeKind.Main) return $"A full copy: it shares nothing with the base. Removing it would free about {Fmt.Bytes(d.OwnBytes)}. {when}";
+            return $"{size}; removing it would free about {Fmt.Bytes(d.OwnBytes)}. {when}";
+        }
+    }
+
     // ---- derived ---------------------------------------------------------------------------------------------
     public bool IsCow => Kind == WorktreeKind.Cow;
     public bool IsBase => Kind == WorktreeKind.Base;
@@ -207,7 +229,18 @@ public sealed class WorktreeViewModel : ObservableObject
         MissingReason = e.PrunableReason;
         Kind = Classify(e, pool);
         Name = System.IO.Path.GetFileName(Path.TrimEnd('\\'));
+        OnPoolDrive = DiskSpaceService.SameDrive(Path, pool.Root);
         RaiseAll();
+    }
+
+    /// <summary>This folder's numbers from the last disk-space measurement; null when it was not part of it.</summary>
+    public void ApplyDisk(DiskFolderUsage? usage, DateTime? measuredAt, bool hasBase)
+    {
+        if (ReferenceEquals(usage, Disk) && measuredAt == DiskMeasuredAt) return;
+        Disk = usage;
+        DiskMeasuredAt = usage == null ? null : measuredAt;
+        _diskHasBase = hasBase;
+        Raise(nameof(Disk), nameof(DiskMeasuredAt), nameof(DetailDisk), nameof(DetailDiskNote), nameof(DiskDetailVisibility));
     }
 
     public void BeginProbe()

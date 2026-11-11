@@ -81,6 +81,23 @@ a build skips relocation and builds in full the first time, which is slower but 
 It then deletes the `<branchPrefix><name>` branch, but only if that branch never moved from the start
 commit.
 
+## What a worktree takes on the drive
+
+A block-cloned file takes no clusters of its own until it is written to; from then on, the part that was
+written does. Windows knows nothing of this when it adds up a folder: Explorer counts every file in full,
+so the folders of a pool add up to many times what the drive holds.
+
+The app measures it (Base tab, **Disk space**). It asks the file system where every file sits
+(`FSCTL_GET_RETRIEVAL_POINTERS`: the file's runs of clusters, by their number on the volume), sorts the
+starts and ends of all runs, and walks the volume's cluster numbers once. A stretch that the files of
+only one folder use is that folder's own space, which is what removing the folder gives back; a stretch
+that several folders use is shared. A file saved seconds ago has no cluster numbers yet, because ReFS
+places data when it is written out; it is counted as its folder's own, which it will be.
+
+A new worktree is not quite free. Windows clones a file in whole clusters and copies what is left, so the
+last, partly filled cluster of every file belongs to the clone alone: up to 4 KB per file on a Dev Drive,
+about 470 MB for a project with 120,000 files. More: [gui/README.md](../gui/README.md#disk-space).
+
 ## Measurements
 
 These numbers come from an 87 GB repository with 119k files (56k in Git LFS), on a Samsung 980 PRO NVMe

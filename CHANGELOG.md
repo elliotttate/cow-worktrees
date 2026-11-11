@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Disk space** on the app's Base tab: what really takes the space on the pool's drive. A worktree
+  shares the files it has not changed with the base, so the folder sizes Explorer shows add up to far
+  more than the drive holds. **Measure** shows, for the base, every other checkout of the repository on
+  that drive and every other folder in the pool root: the folder's size as Explorer shows it, its own
+  space (clusters none of the other folders uses, which is what removing it gives back) and its shared
+  space, with a bar per folder; and above them the total ("506 GB of folders, held in 147 GB") and the
+  drive's free space. A checkout that shares nothing with the base is called a full copy (a worktree
+  made with plain `git worktree add` is one), and a folder Git does not know is called that. A
+  worktree's details pane shows its own and shared space once it has been measured.
+  The measurement only reads, can be stopped, and runs only when asked; the last result is kept in
+  `%LOCALAPPDATA%\cow-worktrees\disk-space\` and shown again with its time. Files saved seconds ago,
+  which ReFS has not yet given a place on the drive, count as the folder's own.
+  Tested on throwaway pools (`gui\tests\disk_space.ps1`), and run once by hand on a real project's
+  pool: 637,000 files in six folders took 11 seconds, and the result matched a count made
+  independently with a script.
+- App command line: `--measure [stop[:ms]]` measures before a `--dump` or `--snapshot`, and the dump has
+  the result as `diskSpace`. `--tab base:hook` (or `refresh`, `build`, `disk`) picks the tab on the right
+  side of the Base tab.
+- `gui\tests\disk_space.ps1`: 36 checks of the view on a throwaway pool with real clones.
+  `gui\tests\make_test_pool.ps1 -PayloadMB <n>` commits that many megabytes of random data, and the test
+  repository now has `extensions.worktreeConfig`, so `cow_worktree.ps1` can make clones in it.
+
+### Changed
+
+- The right side of the Base tab opens on Disk space; the three logs are the tabs after it.
+
+### Fixed
+
+- The Base tab's drive line counted a gigabyte as 10^9 bytes, where Explorer and the scripts
+  (`fallbackMinFreeGB`) count 2^30: a 700 GB drive showed as 752 GB, and a drive with 125 * 10^9 bytes
+  free passed the app's check against a `fallbackMinFreeGB` of 120 that the hook's fallback already
+  failed. The app now counts as they do.
+
 ## 1.1.0
 
 The app becomes the way in: download one file, open it, and it walks you through. Everything can now be

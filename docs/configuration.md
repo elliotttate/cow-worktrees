@@ -108,6 +108,7 @@ The same folder holds the app's own files:
 | `gui.json` | the app's settings; see below |
 | `gui.log` | unexpected errors of the app, and one line per script it ran |
 | `updates\` | the installer the app downloaded for an update |
+| `disk-space\<pool id>.json` | the app's last Disk space measurement of that pool, shown again at the next start; safe to delete |
 | `disconnect.log` | what the uninstaller's `disconnect_all.ps1 -Log` did |
 
 ## `%LOCALAPPDATA%\cow-worktrees\gui.json`

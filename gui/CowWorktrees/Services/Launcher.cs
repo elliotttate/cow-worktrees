@@ -98,4 +98,17 @@ public static class Fmt
         d.TotalSeconds < 60 ? $"{d.TotalSeconds:0.0} s" : d.TotalMinutes < 60 ? $"{(int)d.TotalMinutes}:{d.Seconds:00} min" : $"{(int)d.TotalHours} h {d.Minutes} min";
 
     public static string Plural(int n, string word) => $"{n} {word}{(n == 1 ? "" : "s")}";
+
+    /// <summary>A size the way Explorer writes it: 1 GB is 1024 MB. "147 GB", "1.4 GB", "340 MB", "12 KB".</summary>
+    public static string Bytes(long bytes)
+    {
+        if (bytes <= 0) return "0 KB";
+        double kb = bytes / 1024.0;
+        if (kb < 1000) return $"{Math.Max(1, Math.Round(kb)):N0} KB";
+        double mb = kb / 1024.0;
+        if (mb < 10) return $"{mb:0.0} MB";
+        if (mb < 1000) return $"{mb:N0} MB";
+        double gb = mb / 1024.0;
+        return gb < 10 ? $"{gb:0.0} GB" : $"{gb:N0} GB";
+    }
 }

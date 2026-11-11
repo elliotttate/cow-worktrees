@@ -152,6 +152,7 @@ Dirty rows are tinted with an orange bar; red = broken or commits at risk, blue 
   clicked; the Filter box has the same choices plus copy-on-write / other checkouts; Ctrl+F searches by name,
   branch or path.
 - **Details pane** (Ctrl+D hides it; drag its edge to resize): full commit, upstream, the unpushed commits,
+  the folder's own and shared disk space once it has been measured (see [Disk space](#disk-space)),
   the pool data from `cow_worktree.ps1 -List -Json` (commits since the worktree was made, start commit, why
   `-Prune` keeps it), its `git status` lines, and the buttons: Explorer, Terminal, editor, Copy path,
   **Move to copy-on-write** for a full worktree outside the pool, **Remove worktree** for one inside it.
@@ -161,7 +162,8 @@ fetch); whether the base is clean and locked; `base-build.json` against the base
 missing, or building now while `Global\cow-worktrees.build.<id>` is held); the lock files in
 `<root>\.locks` (a live `refresh` holder means a refresh is moving the base); the scheduled task
 `\CowWorktrees\Refresh-<name>`; free space on the pool's drive (warned below `fallbackMinFreeGB`, and when
-it is not ReFS); and the tails of `hook.log`, `refresh.log` and `base-build.log`.
+it is not ReFS). The right side has four tabs: **Disk space** (below), which it opens on, and the tails
+of `hook.log`, `refresh.log` and `base-build.log`.
 
 ![Base tab](docs/base.png)
 
@@ -174,6 +176,67 @@ you were watching, the app returns to the list.
 when you press Refresh); Check this PC (the walkthrough's checks in a dialog); App settings and About.
 
 The window's position, size and monitor, the column widths, sort, filter and details pane are remembered.
+
+### Disk space
+
+On a Dev Drive a worktree shares the files it has not changed with the base, so folder sizes say little.
+Explorer counts every folder in full: ten worktrees of a 100 GB project show as 1,000 GB while the drive
+holds little more than 100. **Disk space**, the first tab on the right side of the Base tab (the picture
+above), shows what is really there.
+
+**Measure** looks at the base, at every other checkout of the repository that is on the pool's drive (the
+project's main folder too, when it is there), and at every other folder directly inside the pool root.
+For each one it shows:
+
+| | |
+|---|---|
+| Own | The folder's own space: clusters that none of the other folders uses, which is what removing the folder gives back. The solid part of the bar. |
+| Shared | Clusters it has in common with at least one of the other folders. They are on the drive once, however many folders have them. The pale part of the bar. |
+| Folder size | Every file counted in full: what Explorer shows as the folder's size on disk. |
+
+Above the list are the total ("506 GB of folders, held in 147 GB") and a bar for the drive: these
+folders, everything else on it, and what is free. A folder's bar is as long as the folder is large next
+to the largest one. The base comes first, then the folders by own space, largest first.
+
+Some folders get a line in plain words:
+
+- **A full copy**: a checkout with less than 1 % of itself in common with the base, so it takes its
+  whole size. A worktree made with plain `git worktree add` is one, also when it sits inside the pool
+  root, where the list shows it as `CoW`. For one outside the pool the line points to Move to
+  copy-on-write. The project's main folder is a full copy by nature and is not flagged.
+- **Not a worktree**: a folder in the pool root that Git does not know, for example what a removal that
+  went wrong left behind. The line says what deleting it would free. The scripts' own `.locks` is left out.
+
+Once a folder has been measured, a worktree's details pane has the same numbers under "Disk space", and
+says "not measured yet" before.
+
+How it measures: every file is asked where it sits on the volume (`FSCTL_GET_RETRIEVAL_POINTERS`, its
+runs of clusters), the starts and ends of all runs are sorted, and the volume's cluster numbers are
+walked once; a stretch only one folder uses is own, one that several use is shared.
+
+- **It only reads.** A file is opened for its attributes alone, which changes nothing and works while
+  something else has the file open.
+- **It runs only when asked.** A refresh never measures. The last result is kept in
+  `disk-space\<pool id>.json` next to `pools.json` and is there at once at the next start, with the time
+  it was taken. When worktrees were made or folders removed since, a line says so. **Stop** ends a
+  running measurement and leaves the numbers of the one before.
+- **"Own" is own among the measured folders.** Clusters shared with a file outside them (a copy made in
+  Explorer, another repository's pool on the same drive) are not seen, so such a folder's own space is
+  overstated.
+- **Files saved in the last seconds.** ReFS gives data its place on the drive when it is written out,
+  some seconds after a program saved it. Until then the file has no clusters to compare. Such data is
+  counted as the folder's own, which it will be; the folder's tooltip says how much of it there was.
+- **What is left out.** Links (junctions and symbolic links) are not followed. Checkouts on another drive
+  are not measured: they cannot share with the base. A checkout inside another one (Claude Code's
+  `.claude\worktrees`) counts for itself, not for the folder around it. When files could not be asked
+  where they sit (deleted meanwhile, no access), the view says how many.
+- **A new worktree is not quite free.** Windows shares a cloned file in whole clusters (4 KB on a Dev
+  Drive) and copies the rest: the last, partly filled cluster of every file is the clone's own. A
+  worktree of a project with 120,000 files therefore starts with up to about 470 MB of its own, before
+  anything in it was changed.
+- **How long it takes.** On the PC this was written on, a real project's pool of 637,000 files in six
+  folders (508 GB of folders, held in 147 GB) took 11 seconds, and a test pool of 240,000 small files
+  about 3 seconds. A slower drive, or very large files in many fragments, take longer.
 
 ### What it runs
 
@@ -383,8 +446,9 @@ and never opens the walkthrough by itself.
 | `--pool <name or root>` | show that repository first |
 | `--hidden` | window off-screen, out of the taskbar, never activated; no update check, and no part in "one window per person" |
 | `--snapshot <png>` | after the first full refresh, render the window to a PNG |
-| `--dump <json>` | after the first full refresh, write what every row and health item shows |
-| `--tab worktrees\|base\|activity`, `--select <name>` | what the snapshot shows |
+| `--dump <json>` | after the first full refresh, write what every row and health item shows, and the last Disk space measurement (`diskSpace`; `null` when there is none) |
+| `--tab worktrees\|base\|activity`, `--select <name>` | what the snapshot shows. `--tab base:hook` (or `refresh`, `build`, `disk`) also picks the tab on the right side of the Base tab |
+| `--measure [stop[:ms]]` | before the snapshot or dump, measure the disk space of the repository shown and keep the result, as the Measure button does. With `stop`, press Stop at once, or that many milliseconds after the start. Read only in an unattended run. |
 | `--size 1100x700` | window size in layout pixels |
 | `--theme light\|dark` | start in that theme instead of the one Windows is set to |
 | `--drag 2:-140` | before the snapshot, drag the header edge after column 2 by -140 pixels (same code path as the mouse) |
@@ -414,15 +478,18 @@ the plain-words error if any, the output, and the repositories and connections a
 `create` work on the repository the app shows (`--pool`).
 
 Three environment variables keep a run away from the real setup; the tests that set a repository up or
-install the app set all three: `COW_WORKTREES_HOME` (the folder of `pools.json`, `gui.json`, `gui.log` and
-`updates\`), `COW_CODEX_AGENTS_FILE` (the Codex instructions file) and `COW_NO_UPDATE_CHECK=1`.
+install the app set all three: `COW_WORKTREES_HOME` (the folder of `pools.json`, `gui.json`, `gui.log`,
+`updates\` and `disk-space\`), `COW_CODEX_AGENTS_FILE` (the Codex instructions file) and
+`COW_NO_UPDATE_CHECK=1`.
 
 ## Tests
 
 They run the published app, so run `gui\build.ps1` first. The first three and the installer test keep
 the registry of repositories, the Codex file and the settings in temporary folders, and the two that
-set a repository up remove its scheduled task again. `ui_create_remove.ps1` and `compare_status.ps1`
-work on a pool you name: the first makes and removes one worktree of its own, the second only reads.
+set a repository up remove its scheduled task again. `disk_space.ps1` builds a throwaway pool of its
+own on the Dev Drive, registry included, and deletes it afterwards. `ui_create_remove.ps1` and
+`compare_status.ps1` work on a pool you name: the first makes and removes one worktree of its own, the
+second only reads.
 Run each with `powershell -NoProfile -ExecutionPolicy Bypass -File <script> ...` from the repository's
 top folder.
 
@@ -432,13 +499,17 @@ top folder.
 | `gui\tests\ui_setup_wizard.ps1` | Through UI Automation, hidden: every screen of the walkthrough to "You're all set", then the same things as above and that the main window shows the repository; in Repository settings, Codex off and Apply removes the section and keeps the hooks; with the hooks file deleted by hand the banner appears and Fix it puts them back; a full worktree is moved through the Move to copy-on-write dialog, its old folder becomes a junction, and its untracked file and branch are in the clone; App settings and About opens; Remove takes away the registry entry, hooks, section and task and leaves the base copy. | `[-Exe <exe>] [-Drive E] [-CaptureDir <folder>]`; needs a Dev Drive |
 | `gui\tests\update_selftest.ps1` | The update check and download against a made-up release served from `127.0.0.1`: a newer version with the right checksum is verified ("would start"); a wrong checksum is refused and the file deleted; no checksum is refused; the same, an older and a skipped version offer nothing; an installer with another name is ignored; with the server down nothing is shown and one line is logged. | `[-Exe <exe>]` |
 | `gui\tests\ui_create_remove.ps1` | Through UI Automation, hidden, on a real pool: the New worktree dialog creates `gui-selftest-<time>`; with an untracked file in it Remove is refused; without it Remove removes it. Touches only the worktree it makes. | `-Root <pool root> [-CowHome <folder>] [-Exe <exe>] [-CaptureDir <folder>]`; its default `-Exe` is the Debug build, so pass `-Exe gui\publish\CowWorktrees.exe` |
+| `gui\tests\disk_space.ps1` | The Disk space view, on a throwaway pool on the Dev Drive with 24 MB of random data and real clones made by `cow_worktree.ps1` (`--measure`, `--dump`): nothing is measured or shown before Measure; a fresh clone has next to nothing of its own and shares the project with the base; a plain `git worktree add` is called a full copy and a folder Git does not know "not a worktree", while the project's main folder is not flagged; the totals add up; the result is kept and shown at the next start without measuring; after 4 MB of a clone are rewritten its own space is 4 MB larger and its shared space 4 MB smaller; a worktree made since is mentioned until the next measurement; a stopped measurement keeps the numbers of the one before. | `[-Exe <exe>] [-Drive E] [-CaptureDir <folder>] [-Keep]`; needs a Dev Drive |
 | `gui\tests\compare_status.ps1` | The app's changed / untracked / unpushed counts (`--dump`) against plain `git status --porcelain` and `git rev-list`, for every worktree; the app's changed count plus its "only look changed" count must equal Git's. | `[-Pool <name or root>] [-CowHome <folder>] [-Exe <exe>]` |
 | `installer\test_installer.ps1` | A **test build** of the installer: installs silently into a temporary folder, compares the installed files with the staged folder the zip is made from, installs again over it while a stand-in holds the app's mutex, uninstalls with `/KEEPINTEGRATIONS`, and checks that nothing was added to the Uninstall registry key, the Start menu or the desktop. `-CheckApp`: the installed app finds its tool folder. `-CheckLaunch`: Setup starts the app, also when silent. `-CheckDisconnect`: the uninstaller runs `disconnect_all.ps1`. | `[-AppDir <publish folder>] [-CheckApp] [-CheckLaunch] [-CheckDisconnect] [-Keep]`; needs Inno Setup 6 |
 
 Helpers: `gui\tests\make_test_pool.ps1 -Dir <new folder>` builds a throwaway repository with a pool (a
 locked base, a dirty worktree, an agent-branch worktree with an unpushed commit, one whose only change is
 a file that only looks changed), a second pool with no config, and a `pools.json` for them; run the app
-with `COW_WORKTREES_HOME=<folder>\home` to try it. `gui\tests\capture_window.ps1 -ProcessId <pid> -Out
+with `COW_WORKTREES_HOME=<folder>\home` to try it. Its worktrees are plain `git worktree add`, which the
+Disk space view calls full copies; `-PayloadMB <n>` commits that many megabytes of random data so there
+is something to measure, and with the folder on a Dev Drive `scripts\cow_worktree.ps1 -Root
+<folder>\pool -Name <name>` adds real clones. `gui\tests\capture_window.ps1 -ProcessId <pid> -Out
 <png>` saves a window with `PrintWindow` without activating it.
 
 What the tests do not cover, and what has not yet been run at all:
@@ -450,6 +521,10 @@ What the tests do not cover, and what has not yet been run at all:
   build has not yet been tried.
 - `scripts\new_dev_drive.ps1` and `tests\dev_drive_spike.ps1` (for the owner of a PC to run by hand, as
   administrator) have not yet been run.
+- No test measures the disk space of a real project's pool: that was done once by hand, and the result
+  matched a count made independently with a script. No test presses the view's buttons (Measure, Measure
+  again, Stop): `--measure` runs the code behind them. A measurement stopped part-way was tried by hand
+  (`--measure stop:150` on 240,000 files), not by a test, which stops it at once.
 
 The scripts' own tests are `tests\e2e.ps1` and `tests\hook_selftest.ps1`; see the main
 [README](../README.md).
