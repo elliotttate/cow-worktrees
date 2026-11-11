@@ -13,6 +13,11 @@ Measured on an 87 GB game repository (119k files, 56k of them in Git LFS):
 | Disk per worktree | ~87 GB | only the files you change |
 | First build (MSBuild, at the base's commit) | 13-15 min, everything | 5 s, nothing to compile |
 
+![CoW Worktrees: every worktree of a project, and a summary of the selected one](gui/docs/worktrees.png)
+
+The app lists every worktree of a project with its branch, uncommitted work and unpushed commits. More
+pictures are under [The app](#the-app).
+
 ## How it works
 
 1. A **pool** belongs to one repository. It lives in a folder on a ReFS volume and holds a **base**
@@ -237,6 +242,13 @@ It says "repository" where the scripts and these pages say "pool".
   with **Fix it** appears when a connection has gone missing or points at another copy of the tool.
 - **Activity.** Every script run with its command line and its output. A running create, move, base
   build or first setup can be stopped, and is cleaned up or can be picked up later.
+
+| | |
+|:-:|:-:|
+| ![The Changes view](gui/docs/changes.png) | ![Disk space on the Base tab](gui/docs/base.png) |
+| **Changes**: every line a worktree changed, in colour | **Disk space**: what the folders really take on the drive |
+| ![The walkthrough](gui/docs/walkthrough.png) | ![Repository settings](gui/docs/settings.png) |
+| **Getting started**: from nothing to a working repository | **Repository settings**: what is connected, with a switch for each |
 
 It is self-contained: nothing else has to be installed to run it. Setup, removal and every worktree
 action go through the scripts above, and the app shows the command line of each one. Full description,
