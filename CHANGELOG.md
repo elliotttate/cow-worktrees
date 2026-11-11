@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- After an update the installer the app had downloaded (about 60 MB) stayed in
+  `%LOCALAPPDATA%\cow-worktrees\updates` for good, one more with every update. The app now removes it
+  at its next start: every `CowWorktrees-Setup-<version>.exe` there whose version is not newer than the
+  one running. A newer one, and any other file, is left alone. Found on the first update between two
+  real releases (1.1.0 to 1.2.0).
+
 ## 1.2.0
 
 The app now shows what a worktree did, not only that it changed: a full-window view of every changed

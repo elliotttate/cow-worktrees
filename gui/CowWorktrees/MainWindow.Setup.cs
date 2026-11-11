@@ -490,6 +490,8 @@ public sealed partial class MainWindow
     {
         try
         {
+            // The installer that brought the app to this version, and older ones, are no longer needed.
+            _ = UpdateService.RemoveFinishedDownloadsAsync();
             string current = UpdateService.CurrentVersion;
             string previous = VM.Settings.LastRunVersion;
             if (previous != current)
@@ -705,6 +707,7 @@ public sealed partial class MainWindow
             if (!service.IsTestFeed) result = new { error = "--update-result needs --update-feed on http://127.0.0.1 or http://localhost" };
             else
             {
+                int oldInstallersInUse = UpdateService.RemoveFinishedDownloads();   // what a normal start does first
                 var (update, why) = await service.CheckAsync(VM.Settings.SkippedVersion);
                 UpdateDownload? download = update is { HasInstaller: true } ? await service.DownloadAsync(update) : null;
                 // On the test feed the downloaded file is never started: this only says what would have happened.
@@ -719,6 +722,7 @@ public sealed partial class MainWindow
                     wouldStart = download is { Verified: true } ? download.File : null,
                     fileExists = download?.File != null && File.Exists(download.File),
                     leftover = update?.AssetName != null && File.Exists(Path.Combine(UpdateService.UpdatesFolder, update.AssetName)),
+                    oldInstallersInUse,
                 };
             }
             await File.WriteAllTextAsync(updateOut, JsonSerializer.Serialize(result, json));

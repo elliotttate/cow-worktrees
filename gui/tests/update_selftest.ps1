@@ -11,7 +11,8 @@ COW_WORKTREES_HOME is a temporary folder, so the real settings and the real upda
 
 Cases: a newer version with the right checksum (verified, "would start"); a wrong checksum (refused, file
 deleted); no checksum (refused); the same version, an older version and a skipped version (nothing offered);
-an installer with another name (ignored); the server down (nothing offered, nothing shown, one log line).
+an installer with another name (ignored); the server down (nothing offered, nothing shown, one log line);
+installers that a finished update left in the updates folder (removed, except a newer one and one in use).
 Exit code = number of failed checks.
 #>
 param([string]$Exe = (Join-Path $PSScriptRoot '..\publish\CowWorktrees.exe'))
@@ -63,10 +64,11 @@ function Release([string]$version, [string]$assetName, [string]$digest) {
 }
 
 $n = 0
-function Run([string]$feed, [string]$skipped) {
+function Run([string]$feed, [string]$skipped, [scriptblock]$Prepare) {
     $script:n++
     $cowHome = Join-Path $work "home$n"
     New-Item -ItemType Directory -Force $cowHome | Out-Null
+    if ($Prepare) { & $Prepare $cowHome }
     if ($skipped) { Set-Content (Join-Path $cowHome 'gui.json') ('{ "SkippedVersion": "' + $skipped + '" }') -Encoding ASCII }
     $out = Join-Path $work "result$n.json"
     $env:COW_WORKTREES_HOME = $cowHome
@@ -118,6 +120,25 @@ try {
     $r = Run "$base/latest"
     Check ($r.offered -eq '99.1.0' -and $r.hasInstaller -eq $false -and -not $r.wouldStart) 'the version is offered without an installer; nothing is downloaded'
 
+    '== installers a finished update left behind'
+    $state.Json = Release $current "CowWorktrees-Setup-$current.exe" "sha256:$sha"
+    $held = $null
+    $r = Run "$base/latest" '' {
+        param($cowHome)
+        $u = Join-Path $cowHome 'updates'; New-Item -ItemType Directory -Force $u | Out-Null
+        foreach ($f in "CowWorktrees-Setup-$current.exe", 'CowWorktrees-Setup-0.9.0.exe', 'CowWorktrees-Setup-0.8.0.exe', 'CowWorktrees-Setup-99.2.0.exe', 'notes.txt') {
+            Set-Content -LiteralPath (Join-Path $u $f) -Value 'stands in for a file left here'
+        }
+        # as an installer that is still closing holds its own file
+        $script:held = [IO.File]::Open((Join-Path $u 'CowWorktrees-Setup-0.8.0.exe'), 'Open', 'Read', 'None')
+    }
+    $u = Join-Path $r.Home 'updates'
+    Check (-not (Test-Path "$u\CowWorktrees-Setup-$current.exe") -and -not (Test-Path "$u\CowWorktrees-Setup-0.9.0.exe")) 'the installer of the running version and an older one are removed'
+    Check ((Test-Path "$u\CowWorktrees-Setup-99.2.0.exe") -and (Test-Path "$u\notes.txt")) 'a newer installer and a file of another kind stay'
+    Check ((Test-Path "$u\CowWorktrees-Setup-0.8.0.exe") -and $r.oldInstallersInUse -eq 1) "one that is still in use is left for the next try (counted: $($r.oldInstallersInUse))"
+    Check ((Get-Content (Join-Path $r.Home 'gui.log') -Raw) -match 'update: removed CowWorktrees-Setup-0\.9\.0\.exe') 'the removal is written to gui.log'
+    if ($held) { $held.Close(); $held = $null }
+
     '== a feed that is not on this PC is ignored'
     $r = Run 'http://example.invalid/latest'
     Check ($r.error -match 'needs --update-feed') 'a feed outside 127.0.0.1 / localhost is not used'
@@ -135,6 +156,7 @@ try {
     $state.Stop = $true
     try { $listener.Stop(); $listener.Close() } catch { }
     try { $ps.Stop(); $ps.Dispose(); $rs.Close() } catch { }
+    if ($held) { $held.Close() }
     Remove-Item Env:\COW_WORKTREES_HOME -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }

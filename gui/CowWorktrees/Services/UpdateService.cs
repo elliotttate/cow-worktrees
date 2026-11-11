@@ -18,7 +18,8 @@ public sealed record UpdateDownload(bool Verified, string Message, string? File)
 /// Looks at the latest release on GitHub and, when asked, downloads its installer. Rules that are not relaxed:
 /// the check only reads; nothing is downloaded or started without a click; the installer must be the asset
 /// named CowWorktrees-Setup-&lt;version&gt;.exe from this project's release downloads; its SHA-256 must equal the
-/// digest GitHub publishes for the asset, or the file is deleted; only an installed copy starts it.
+/// digest GitHub publishes for the asset, or the file is deleted; only an installed copy starts it. The installer
+/// stays in the updates folder while it runs; the version it installed removes it at its first start.
 /// </summary>
 public sealed class UpdateService
 {
@@ -176,6 +177,51 @@ public sealed class UpdateService
             TryDelete(file);
             AppLog.Write($"update download: {ex.GetType().Name}: {ex.Message}");
             return new UpdateDownload(false, ex is OperationCanceledException ? "The download was stopped." : $"The update could not be downloaded ({ex.Message}).", null);
+        }
+    }
+
+    /// <summary>
+    /// Removes the installers a finished update left in the updates folder: files named
+    /// CowWorktrees-Setup-&lt;version&gt;.exe whose version is not newer than this app's. A newer one stays (it may be
+    /// about to be started), and so does every other file. Returns how many could not be removed, which happens while
+    /// the installer that started this app is still closing.
+    /// </summary>
+    public static int RemoveFinishedDownloads()
+    {
+        const string prefix = "CowWorktrees-Setup-";
+        int inUse = 0;
+        try
+        {
+            if (!Directory.Exists(UpdatesFolder) || Parse(CurrentVersion) is not { } now) return 0;
+            foreach (string file in Directory.EnumerateFiles(UpdatesFolder, prefix + "*.exe"))
+            {
+                string name = Path.GetFileNameWithoutExtension(file);
+                if (Parse(name[prefix.Length..]) is not { } version || version > now) continue;
+                try
+                {
+                    File.Delete(file);
+                    AppLog.Write($"update: removed {Path.GetFileName(file)}, which is no longer needed");
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    inUse++;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write($"update: tidying the updates folder: {ex.GetType().Name}: {ex.Message}");
+        }
+        return inUse;
+    }
+
+    /// <summary>The same at once, and again after 20 seconds and a minute more for a file that was still in use.</summary>
+    public static async Task RemoveFinishedDownloadsAsync()
+    {
+        foreach (int seconds in new[] { 0, 20, 60 })
+        {
+            if (seconds > 0) await Task.Delay(TimeSpan.FromSeconds(seconds)).ConfigureAwait(false);
+            if (await Task.Run(RemoveFinishedDownloads).ConfigureAwait(false) == 0) return;
         }
     }
 
