@@ -83,6 +83,41 @@
                         <TextBlock Text="Worktrees in seconds, without the disk space" Style="{StaticResource WizardTitle}" />
                         <TextBlock Style="{StaticResource WizardLead}"
                                    Text="A worktree is a second working copy of your project, so you (or an AI agent) can work on several things at once. Normally each one is a full copy that takes minutes to make and gigabytes to store. On a Dev Drive, this app makes them in seconds, and they take almost no space until files change." />
+                        <!-- setups made before (the app was installed again, or its own folder was lost): one press brings them back -->
+                        <Grid Style="{StaticResource WizardCard}" BorderBrush="{ThemeResource AccentFillColorDefaultBrush}" Margin="0,6,0,0"
+                              Visibility="{x:Bind VM.FoundVisibility, Mode=OneWay}" AutomationProperties.AutomationId="Wizard.Found">
+                            <StackPanel Spacing="10">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <FontIcon Glyph="&#xE7B8;" FontSize="18" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{x:Bind VM.FoundTitle, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource WizardNote}"
+                                           Text="Their worktrees are still on the drive. Using them puts them back in this app and connects Claude Code, Codex and the daily upkeep to this copy of the tool, as each was set up. Nothing is copied or built, and your projects, worktrees and branches stay as they are." />
+                                <ItemsControl ItemsSource="{x:Bind VM.Found}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:FoundPoolItem">
+                                            <CheckBox IsChecked="{x:Bind IsChecked, Mode=TwoWay}" IsEnabled="{x:Bind CanUse}" Margin="0,2,0,2" AutomationProperties.Name="{x:Bind Name}">
+                                                <StackPanel Spacing="1">
+                                                    <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" />
+                                                    <TextBlock Text="{x:Bind Where}" Style="{StaticResource WizardNote}" />
+                                                    <TextBlock Text="{x:Bind ProblemText}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource SystemFillColorCautionBrush}" TextWrapping="Wrap" Visibility="{x:Bind ProblemVisibility}" />
+                                                    <TextBlock Text="{x:Bind Result, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" Visibility="{x:Bind ResultVisibility, Mode=OneWay}" />
+                                                </StackPanel>
+                                            </CheckBox>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <Button Style="{StaticResource AccentButtonStyle}" Click="UseFound_Click" IsEnabled="{x:Bind VM.CanAdopt, Mode=OneWay}" AutomationProperties.AutomationId="Wizard.UseFound">
+                                        <TextBlock Text="{x:Bind VM.UseFoundLabel, Mode=OneWay}" />
+                                    </Button>
+                                    <ProgressRing Width="16" Height="16" IsActive="{x:Bind VM.Adopting, Mode=OneWay}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{x:Bind VM.AdoptStatus, Mode=OneWay}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource WizardNote}" Text="Or press Get started to set up another project." />
+                            </StackPanel>
+                        </Grid>
+
                         <TextBlock Text="What happens next" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,14,0,0" />
                         <Grid Style="{StaticResource WizardCard}" ColumnSpacing="16" RowSpacing="16">
                             <Grid.ColumnDefinitions>

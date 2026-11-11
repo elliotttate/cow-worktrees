@@ -81,7 +81,7 @@ public sealed class CheckRowViewModel
 /// The get-started walkthrough: one question per screen, and at the end one run of setup.ps1. Nothing on this PC
 /// changes before "Set up" is pressed; setup.ps1 stays the only place where setup is implemented.
 /// </summary>
-public sealed class SetupWizardViewModel : ObservableObject
+public sealed partial class SetupWizardViewModel : ObservableObject
 {
     private readonly MainViewModel _main;
     private int _step;

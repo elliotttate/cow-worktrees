@@ -157,7 +157,11 @@ public sealed class GitService
         }
 
         var statusTask = TimedAsync(() => RunAsync(e.Path, new[] { "status", "--porcelain=v1", "-b" }, TimeSpan.FromMinutes(3), ct));
-        var logTask = RunAsync(e.Path, new[] { "log", "-1", "--no-show-signature", "--format=%h%x1f%H%x1f%s%x1f%ct%x1f%an" }, TimeSpan.FromSeconds(60), ct);
+        // What a commit says never changes: `git log -1` runs only when HEAD is another commit than at the last look.
+        bool logKnown = e.Head != null && LogCache.TryGetValue(e.Path, out var known) && known.Head == e.Head;
+        var logTask = logKnown
+            ? Task.FromResult(new ProcessResult(0, LogCache[e.Path].Line, "", TimeSpan.Zero, false))
+            : RunAsync(e.Path, new[] { "log", "-1", "--no-show-signature", "--format=%h%x1f%H%x1f%s%x1f%ct%x1f%an" }, TimeSpan.FromSeconds(60), ct);
         var unpushedTask = RunAsync(e.Path, new[] { "rev-list", "--count", "HEAD", "--not", "--remotes" }, TimeSpan.FromSeconds(90), ct);
         await Task.WhenAll(statusTask, logTask, unpushedTask).ConfigureAwait(false);
 
@@ -179,6 +183,7 @@ public sealed class GitService
             {
                 p.ShortSha = parts[0];
                 p.FullSha = parts[1];
+                if (!logKnown && e.Head != null && parts[1] == e.Head) LogCache[e.Path] = (e.Head, log.StdOut);
                 p.Subject = parts[2];
                 if (long.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var ct2)) p.CommitTime = DateTimeOffset.FromUnixTimeSeconds(ct2);
                 p.Author = parts[4];
@@ -223,6 +228,7 @@ public sealed class GitService
     // scripts call such an entry a phantom (Get-CowStatus in scripts\CowCommon.ps1) and do not count it; this is
     // the same test: " M", the file exists, and its raw hash equals the blob the index holds.
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Head, string Line)> LogCache = new(StringComparer.OrdinalIgnoreCase);
     private const int MaxPhantomCandidates = 400;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Length, long Ticks, string Blob, bool Phantom)> PhantomCache = new(StringComparer.OrdinalIgnoreCase);
 

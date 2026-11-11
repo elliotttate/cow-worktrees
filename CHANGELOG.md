@@ -1,5 +1,50 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Changes view.** "View changes" on a worktree (the button in its details, the right-click menu, or
+  Ctrl+Shift+D) fills the window with what changed in it: the changed files on the left, each with a
+  coloured letter for what happened to it (modified, added, deleted, renamed, new) and how many lines were
+  added and removed, and every changed line on the right, green for added and red for removed, with the
+  changed part of a line marked and the code coloured (comments, strings, numbers, keywords). The box at
+  the top chooses what to look at: the uncommitted edits, everything since the worktree was made (or all
+  that is not on its upstream branch), or one commit. F11 uses the whole screen; Esc goes back. It only
+  reads: nothing in the worktree is touched, and Git is run without taking its index lock. Binary files,
+  very large files and files that only look changed to Git are listed with a note instead of lines.
+- **Summaries by Claude or Codex.** The details pane has a Summary card at the top. "Summarize" has
+  Claude or Codex write a few lines about the selected worktree: one sentence on what it is for, the
+  main things done, and what is still open. It runs the Claude Code or Codex command line tool on this
+  PC, without its file and shell tools, and gives it the worktree's commit titles, changed files and
+  excerpts of its changed lines. A summary is only written when the button is pressed, is kept for the
+  next start, and says when the worktree has changed since. The arrow next to the button chooses the
+  tool, and has the option **Keep every worktree's summary up to date**: with it on, a summary is
+  written without being asked whenever a worktree with work of its own has changed and has been quiet
+  for two minutes, so it is there when you select the worktree. The option is off until you turn it on.
+
+- **Setups from before are found.** The walkthrough's first screen looks on the Dev Drive for setups
+  that are not in the app's list (the app was installed again, or its own folder was lost) and lists
+  them with their folder, project and worktrees. "Use them" runs setup again for each with the choices
+  its own settings record: it is back in the app, and Claude Code, Codex and the daily upkeep point at
+  this copy of the tool. Nothing is copied or built. One whose project folder is gone is shown, with the
+  reason, and left alone.
+
+### Changed
+
+- **Faster.** Measured on a repository of 119,000 files with seven worktrees: the list is shown in its
+  order as soon as the worktrees are read (1.9 s after start instead of 4.6 s), and a later look takes
+  1.1 s instead of 4.6 s, because the listing script (PowerShell, then Git again for every worktree)
+  now runs only when something it reports has changed, or after ten minutes. `git log` runs only when a
+  worktree's HEAD moved. While the window is minimised or hidden, the worktrees are looked at every five
+  minutes instead of every 45 seconds. The Changes view reads the changed lines while it reads the file
+  lists (0.8 s instead of 1.3 s for 35 files), reads new files whole only when they are text, fills its
+  file list in one step, and keeps the last three views: the same worktree again opens at once, where it
+  was, and reads again only when the worktree changed.
+- **The details pane.** Four numbers at a glance (changed, new, not pushed, last active), the branch and
+  the last commit in a card, and the commits and changed files as rows instead of lines of text: a
+  commit's row opens the Changes view on that commit, a file's row opens it at that file.
+
 ## 1.1.0
 
 The app becomes the way in: download one file, open it, and it walks you through. Everything can now be

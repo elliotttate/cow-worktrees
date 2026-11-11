@@ -16,6 +16,7 @@
             <KeyboardAccelerator Modifiers="Control" Key="F" Invoked="FocusSearch_Invoked" />
             <KeyboardAccelerator Modifiers="Control" Key="N" Invoked="NewWorktree_Invoked" />
             <KeyboardAccelerator Modifiers="Control" Key="D" Invoked="ToggleDetails_Invoked" />
+            <KeyboardAccelerator Modifiers="Control,Shift" Key="D" Invoked="ViewChanges_Invoked" />
             <KeyboardAccelerator Modifiers="Control" Key="Number1" Invoked="Tab_Invoked" />
             <KeyboardAccelerator Modifiers="Control" Key="Number2" Invoked="Tab_Invoked" />
             <KeyboardAccelerator Modifiers="Control" Key="Number3" Invoked="Tab_Invoked" />
@@ -343,20 +344,152 @@
                         <TextBlock Text="Select a worktree to see its changes, its unpushed commits and what you can do with it."
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" TextAlignment="Center" />
                         <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap" TextAlignment="Center"
-                                   Text="Double-click opens it in Explorer · right-click for more · Del removes a copy-on-write worktree · Ctrl+C copies its path · drag header edges to resize columns" />
+                                   Text="Double-click opens it in Explorer · Ctrl+Shift+D shows its changes · right-click for more · Del removes a copy-on-write worktree · Ctrl+C copies its path · drag header edges to resize columns" />
                     </StackPanel>
                     <ScrollViewer Visibility="{x:Bind VM.DetailsVisibility, Mode=OneWay}">
-                        <StackPanel Padding="18,16,18,18" Spacing="14">
-                            <StackPanel Spacing="4">
+                        <StackPanel Padding="16,16,16,18" Spacing="12">
+                            <StackPanel.Resources>
+                                <Style x:Key="DetailRowButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                                    <Setter Property="Background" Value="Transparent" />
+                                    <Setter Property="BorderThickness" Value="0" />
+                                    <Setter Property="Padding" Value="8,6,8,7" />
+                                    <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                </Style>
+                                <Style x:Key="SectionLabel" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+                                    <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                    <Setter Property="Margin" Value="2,4,0,0" />
+                                </Style>
+                                <Style x:Key="StatTile" TargetType="StackPanel">
+                                    <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                                    <Setter Property="CornerRadius" Value="6" />
+                                    <Setter Property="Padding" Value="10,7,8,8" />
+                                    <Setter Property="Spacing" Value="0" />
+                                </Style>
+                                <Style x:Key="StatNumber" TargetType="TextBlock">
+                                    <Setter Property="FontSize" Value="20" />
+                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                                </Style>
+                            </StackPanel.Resources>
+
+                            <!-- what it is -->
+                            <StackPanel Spacing="5">
                                 <TextBlock Text="{x:Bind VM.SelectedWorktree.Name, Mode=OneWay, FallbackValue=''}" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" />
-                                <TextBlock Text="{x:Bind VM.SelectedWorktree.Path, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
-                                <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
                                     <Border CornerRadius="8" Padding="6,0,6,1" BorderThickness="1" BorderBrush="{x:Bind VM.SelectedWorktree.KindBrush, Mode=OneWay, FallbackValue={x:Null}}">
                                         <TextBlock Text="{x:Bind VM.SelectedWorktree.KindLabel, Mode=OneWay, FallbackValue=''}" FontSize="11" Foreground="{x:Bind VM.SelectedWorktree.KindBrush, Mode=OneWay, FallbackValue={x:Null}}" />
                                     </Border>
-                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailLock, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                    <StackPanel Orientation="Horizontal" Spacing="4" Visibility="{x:Bind VM.SelectedWorktree.LockedVisibility, Mode=OneWay, FallbackValue=Collapsed}" VerticalAlignment="Center">
+                                        <FontIcon Glyph="&#xE72E;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailLock, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" MaxWidth="250" ToolTipService.ToolTip="{x:Bind VM.SelectedWorktree.DetailLock, Mode=OneWay, FallbackValue=''}" />
+                                    </StackPanel>
                                 </StackPanel>
+                                <TextBlock Text="{x:Bind VM.SelectedWorktree.Path, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                             </StackPanel>
+
+                            <!-- the summary, written by Claude or Codex when asked -->
+                            <Grid Style="{StaticResource CardGrid}" Padding="14,10,10,12" BorderBrush="{ThemeResource AccentFillColorDefaultBrush}" AutomationProperties.AutomationId="Details.Summary">
+                                <StackPanel Spacing="8">
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Glyph="&#xE99A;" FontSize="15" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="Summary" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <SplitButton x:Name="SummaryButton" Grid.Column="2" Click="Summarize_Click" Padding="10,3,8,4" IsEnabled="{x:Bind VM.SelectedWorktree.SummaryIdle, Mode=OneWay, FallbackValue=False}"
+                                                     AutomationProperties.Name="Summarize" AutomationProperties.AutomationId="Details.Summarize"
+                                                     ToolTipService.ToolTip="Have Claude or Codex write a few lines about this worktree. Its commit titles and changed lines are sent to that service.">
+                                            <TextBlock Text="{x:Bind VM.SelectedWorktree.SummaryButtonLabel, Mode=OneWay, FallbackValue='Summarize'}" />
+                                            <SplitButton.Flyout>
+                                                <MenuFlyout Opening="SummaryMenu_Opening" Placement="BottomEdgeAlignedRight">
+                                                    <MenuFlyoutItem x:Name="SummaryClaudeItem" Text="Summarize with Claude" Click="SummarizeClaude_Click" />
+                                                    <MenuFlyoutItem x:Name="SummaryCodexItem" Text="Summarize with Codex" Click="SummarizeCodex_Click" />
+                                                    <MenuFlyoutSeparator />
+                                                    <MenuFlyoutItem x:Name="SummaryCopyItem" Text="Copy the summary" Click="SummaryCopy_Click" />
+                                                    <MenuFlyoutItem x:Name="SummaryRemoveItem" Text="Remove the summary" Click="SummaryRemove_Click" />
+                                                    <MenuFlyoutSeparator />
+                                                    <ToggleMenuFlyoutItem x:Name="SummaryAutoItem" Text="Keep every worktree's summary up to date" Click="SummaryAuto_Click"
+                                                                          ToolTipService.ToolTip="Summaries are then written without being asked: whenever a worktree has changed and has been quiet for two minutes, so they are ready when you select it. Each one sends that worktree's commit titles and changed lines to the service." />
+                                                </MenuFlyout>
+                                            </SplitButton.Flyout>
+                                        </SplitButton>
+                                    </Grid>
+
+                                    <StackPanel Spacing="7" Margin="0,0,4,0" Visibility="{x:Bind VM.SelectedWorktree.SummaryReadyVisibility, Mode=OneWay, FallbackValue=Collapsed}">
+                                        <TextBlock Text="{x:Bind VM.SelectedWorktree.SummaryHeadline, Mode=OneWay, FallbackValue=''}" FontWeight="SemiBold" TextWrapping="Wrap" IsTextSelectionEnabled="True" AutomationProperties.AutomationId="Details.SummaryHeadline" />
+                                        <ItemsControl ItemsSource="{x:Bind VM.SelectedWorktree.SummaryPoints, Mode=OneWay, FallbackValue={x:Null}}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="x:String">
+                                                    <Grid ColumnSpacing="8" Margin="0,2,0,2">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Ellipse Width="5" Height="5" Fill="{ThemeResource AccentFillColorDefaultBrush}" VerticalAlignment="Top" Margin="2,8,0,0" />
+                                                        <TextBlock Grid.Column="1" Text="{x:Bind}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <Border CornerRadius="6" Padding="10,6,10,7" Background="{ThemeResource SystemFillColorCautionBackgroundBrush}" Visibility="{x:Bind VM.SelectedWorktree.SummaryOpenVisibility, Mode=OneWay, FallbackValue=Collapsed}">
+                                            <TextBlock TextWrapping="Wrap" IsTextSelectionEnabled="True">
+                                                <Run Text="Open:" FontWeight="SemiBold" Foreground="{ThemeResource SystemFillColorCautionBrush}" /><Run Text=" " /><Run Text="{x:Bind VM.SelectedWorktree.SummaryOpen, Mode=OneWay, FallbackValue=''}" />
+                                            </TextBlock>
+                                        </Border>
+                                        <TextBlock Text="{x:Bind VM.SelectedWorktree.SummaryMeta, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{x:Bind VM.SelectedWorktree.SummaryMetaBrush, Mode=OneWay, FallbackValue={x:Null}}" TextWrapping="Wrap" />
+                                    </StackPanel>
+
+                                    <TextBlock x:Name="SummaryHintText" Margin="0,0,4,0" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"
+                                               Visibility="{x:Bind VM.SelectedWorktree.SummaryEmptyVisibility, Mode=OneWay, FallbackValue=Collapsed}"
+                                               Text="Have Claude or Codex write a few lines about what this worktree is for and where it stands. Its commit titles and changed lines are sent to that service, through the tool on this PC." />
+
+                                    <StackPanel Orientation="Horizontal" Spacing="10" Visibility="{x:Bind VM.SelectedWorktree.SummaryBusyVisibility, Mode=OneWay, FallbackValue=Collapsed}">
+                                        <ProgressRing Width="16" Height="16" IsActive="True" VerticalAlignment="Center" />
+                                        <TextBlock Text="{x:Bind VM.SelectedWorktree.SummaryBusyText, Mode=OneWay, FallbackValue=''}" VerticalAlignment="Center" />
+                                        <HyperlinkButton Content="Stop" Click="SummaryCancel_Click" Padding="6,2,6,2" />
+                                    </StackPanel>
+
+                                    <TextBlock Margin="0,0,4,0" Text="{x:Bind VM.SelectedWorktree.SummaryError, Mode=OneWay, FallbackValue=''}" Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                                               Visibility="{x:Bind VM.SelectedWorktree.SummaryErrorVisibility, Mode=OneWay, FallbackValue=Collapsed}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- the numbers -->
+                            <Grid ColumnSpacing="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="1.25*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Style="{StaticResource StatTile}" ToolTipService.ToolTip="{x:Bind VM.SelectedWorktree.DetailChanges, Mode=OneWay, FallbackValue=''}">
+                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.ChangedCount, Mode=OneWay, FallbackValue=''}" Style="{StaticResource StatNumber}" Foreground="{x:Bind VM.SelectedWorktree.ChangedCountBrush, Mode=OneWay, FallbackValue={x:Null}}" />
+                                    <TextBlock Text="changed" Style="{StaticResource SecondaryCaption}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Style="{StaticResource StatTile}" ToolTipService.ToolTip="New files and folders Git does not track yet">
+                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.UntrackedCount, Mode=OneWay, FallbackValue=''}" Style="{StaticResource StatNumber}" Foreground="{x:Bind VM.SelectedWorktree.UntrackedCountBrush, Mode=OneWay, FallbackValue={x:Null}}" />
+                                    <TextBlock Text="new" Style="{StaticResource SecondaryCaption}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Style="{StaticResource StatTile}" ToolTipService.ToolTip="{x:Bind VM.SelectedWorktree.DetailUnpushed, Mode=OneWay, FallbackValue=''}">
+                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.UnpushedCount, Mode=OneWay, FallbackValue=''}" Style="{StaticResource StatNumber}" Foreground="{x:Bind VM.SelectedWorktree.UnpushedBrush, Mode=OneWay, FallbackValue={x:Null}}" />
+                                    <TextBlock Text="not pushed" Style="{StaticResource SecondaryCaption}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="3" Style="{StaticResource StatTile}" ToolTipService.ToolTip="{x:Bind VM.SelectedWorktree.DetailActivity, Mode=OneWay, FallbackValue=''}">
+                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.ActivityShort, Mode=OneWay, FallbackValue=''}" Style="{StaticResource StatNumber}" />
+                                    <TextBlock Text="last active" Style="{StaticResource SecondaryCaption}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- what you can do -->
+                            <Button Click="ViewChanges_Click" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Margin="0,0,0,-6"
+                                    AutomationProperties.Name="View changes" AutomationProperties.AutomationId="Details.ViewChanges"
+                                    ToolTipService.ToolTip="Every change in this worktree, in colour, over the whole window (Ctrl+Shift+D)">
+                                <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE8FD;" FontSize="14" /><TextBlock Text="View changes" /></StackPanel>
+                            </Button>
 
                             <Grid ColumnSpacing="6" RowSpacing="6">
                                 <Grid.ColumnDefinitions>
@@ -381,7 +514,7 @@
                                 </Button>
                             </Grid>
 
-                            <Button Click="Migrate_Click" AutomationProperties.Name="Move to copy-on-write" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Margin="0,-8,0,0"
+                            <Button Click="Migrate_Click" AutomationProperties.Name="Move to copy-on-write" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Margin="0,-6,0,0"
                                     Visibility="{x:Bind VM.SelectedWorktree.MigrateVisibility, Mode=OneWay, FallbackValue=Collapsed}"
                                     ToolTipService.ToolTip="This is a full copy of the project. Move it into a copy-on-write clone to get its disk space back; everything in it is carried over and checked.">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -390,7 +523,7 @@
                                 </StackPanel>
                             </Button>
 
-                            <Button Click="Remove_Click" AutomationProperties.Name="Remove worktree" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Margin="0,-8,0,0"
+                            <Button Click="Remove_Click" AutomationProperties.Name="Remove worktree" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Margin="0,-6,0,0"
                                     Visibility="{x:Bind VM.SelectedWorktree.RemoveVisibility, Mode=OneWay, FallbackValue=Collapsed}"
                                     ToolTipService.ToolTip="Remove this worktree (Del). A worktree with changed or untracked files is refused, so nothing is lost by accident.">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -399,58 +532,94 @@
                                 </StackPanel>
                             </Button>
 
-                            <StackPanel Spacing="10">
+                            <!-- where it is: branch and last commit -->
+                            <Grid Style="{StaticResource CardGrid}" Padding="14,11,14,12" RowSpacing="10">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
                                 <StackPanel Spacing="1">
                                     <TextBlock Text="Branch" Style="{StaticResource DetailKey}" />
-                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.BranchDisplay, Mode=OneWay, FallbackValue=''}" Style="{StaticResource DetailValue}" />
+                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.BranchDisplay, Mode=OneWay, FallbackValue=''}" FontWeight="SemiBold" Foreground="{x:Bind VM.SelectedWorktree.BranchBrush, Mode=OneWay, FallbackValue={x:Null}}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailUpstream, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                                 </StackPanel>
-                                <StackPanel Spacing="1">
-                                    <TextBlock Text="Upstream" Style="{StaticResource DetailKey}" />
-                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailUpstream, Mode=OneWay, FallbackValue=''}" Style="{StaticResource DetailValue}" />
+                                <StackPanel Grid.Row="1" Spacing="3" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" Padding="0,9,0,0">
+                                    <TextBlock Text="Last commit" Style="{StaticResource DetailKey}" />
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border CornerRadius="4" Padding="6,1,6,2" Background="{ThemeResource SubtleFillColorSecondaryBrush}" VerticalAlignment="Top" ToolTipService.ToolTip="{x:Bind VM.SelectedWorktree.DetailHead, Mode=OneWay, FallbackValue=''}">
+                                            <TextBlock Text="{x:Bind VM.SelectedWorktree.HeadShort, Mode=OneWay, FallbackValue=''}" FontFamily="{StaticResource MonoFont}" FontSize="12" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" IsTextSelectionEnabled="True" />
+                                        </Border>
+                                        <TextBlock Grid.Column="1" Text="{x:Bind VM.SelectedWorktree.Subject, Mode=OneWay, FallbackValue=''}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                    </Grid>
+                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailCommitWhen, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                                 </StackPanel>
-                                <StackPanel Spacing="1">
-                                    <TextBlock Text="HEAD" Style="{StaticResource DetailKey}" />
-                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.Subject, Mode=OneWay, FallbackValue=''}" Style="{StaticResource DetailValue}" />
-                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailHead, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" FontFamily="{StaticResource MonoFont}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsTextSelectionEnabled="True" />
-                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailCommitWhen, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                </StackPanel>
-                                <StackPanel Spacing="1">
-                                    <TextBlock Text="Working tree" Style="{StaticResource DetailKey}" />
-                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailChanges, Mode=OneWay, FallbackValue=''}" Style="{StaticResource DetailValue}" />
-                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailStatusTime, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                                </StackPanel>
-                                <StackPanel Spacing="1">
-                                    <TextBlock Text="Commits on no remote" Style="{StaticResource DetailKey}" />
-                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailUnpushed, Mode=OneWay, FallbackValue=''}" Style="{StaticResource DetailValue}" />
-                                    <ItemsControl ItemsSource="{x:Bind VM.SelectedWorktree.UnpushedLog, Mode=OneWay, FallbackValue={x:Null}}" Margin="0,4,0,0">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate x:DataType="x:String">
-                                                <TextBlock Text="{x:Bind}" FontFamily="{StaticResource MonoFont}" FontSize="12" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </StackPanel>
-                                <StackPanel Spacing="1">
-                                    <TextBlock Text="Last activity" Style="{StaticResource DetailKey}" />
-                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailActivity, Mode=OneWay, FallbackValue=''}" Style="{StaticResource DetailValue}" />
-                                </StackPanel>
-                                <StackPanel Spacing="1" Visibility="{x:Bind VM.SelectedWorktree.CowDetailVisibility, Mode=OneWay, FallbackValue=Collapsed}">
-                                    <TextBlock Text="Copy-on-write" Style="{StaticResource DetailKey}" />
-                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailCow, Mode=OneWay, FallbackValue=''}" Style="{StaticResource DetailValue}" />
-                                    <TextBlock Text="{x:Bind VM.SelectedWorktree.PruneText, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
-                                </StackPanel>
-                            </StackPanel>
+                            </Grid>
 
-                            <StackPanel Spacing="4" Visibility="{x:Bind VM.SelectedWorktree.StatusLinesVisibility, Mode=OneWay, FallbackValue=Collapsed}">
-                                <TextBlock Text="{x:Bind VM.SelectedWorktree.StatusLinesHeader, Mode=OneWay, FallbackValue=''}" Style="{StaticResource DetailKey}" />
-                                <ItemsControl ItemsSource="{x:Bind VM.SelectedWorktree.StatusLines, Mode=OneWay, FallbackValue={x:Null}}">
+                            <!-- commits on no remote: one row each, click to see what it changed -->
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailUnpushed, Mode=OneWay, FallbackValue=''}" Style="{StaticResource SectionLabel}" TextWrapping="Wrap" />
+                                <ItemsControl ItemsSource="{x:Bind VM.SelectedWorktree.CommitItems, Mode=OneWay, FallbackValue={x:Null}}" Margin="-6,0,-6,0" AutomationProperties.AutomationId="Details.Commits">
                                     <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="x:String">
-                                            <TextBlock Text="{x:Bind}" FontFamily="{StaticResource MonoFont}" FontSize="12" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" />
+                                        <DataTemplate x:DataType="vm:CommitItem">
+                                            <Button Style="{StaticResource DetailRowButton}" Click="CommitRow_Click" Tag="{x:Bind Sha}" ToolTipService.ToolTip="See what this commit changed">
+                                                <Grid ColumnSpacing="9">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Border CornerRadius="4" Padding="6,1,6,2" Background="{ThemeResource SubtleFillColorSecondaryBrush}" VerticalAlignment="Top" Margin="0,1,0,0">
+                                                        <TextBlock Text="{x:Bind Sha}" FontFamily="{StaticResource MonoFont}" FontSize="12" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                                    </Border>
+                                                    <StackPanel Grid.Column="1" Spacing="1">
+                                                        <TextBlock Text="{x:Bind Subject}" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Text="{x:Bind When}" Style="{StaticResource SecondaryCaption}" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Button>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                             </StackPanel>
+
+                            <!-- changed and new files: one row each, click to see its lines -->
+                            <StackPanel Spacing="2" Visibility="{x:Bind VM.SelectedWorktree.StatusLinesVisibility, Mode=OneWay, FallbackValue=Collapsed}">
+                                <TextBlock Text="{x:Bind VM.SelectedWorktree.StatusLinesHeader, Mode=OneWay, FallbackValue=''}" Style="{StaticResource SectionLabel}" />
+                                <ItemsControl ItemsSource="{x:Bind VM.SelectedWorktree.StatusItems, Mode=OneWay, FallbackValue={x:Null}}" Margin="-6,0,-6,0" AutomationProperties.AutomationId="Details.Changes">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:StatusItem">
+                                            <Button Style="{StaticResource DetailRowButton}" Padding="8,4,8,5" Click="StatusRow_Click" Tag="{x:Bind}" ToolTipService.ToolTip="{x:Bind Tip}">
+                                                <Grid ColumnSpacing="9">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Border Width="20" Height="20" CornerRadius="5" Background="{x:Bind KindFill}" VerticalAlignment="Center">
+                                                        <TextBlock Text="{x:Bind Badge}" Foreground="{x:Bind KindBrush}" FontWeight="Bold" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                    </Border>
+                                                    <StackPanel Grid.Column="1">
+                                                        <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Text="{x:Bind Folder}" Style="{StaticResource SecondaryCaption}" Visibility="{x:Bind FolderVisibility}" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="{x:Bind VM.SelectedWorktree.StatusMoreText, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="2,2,0,0"
+                                           Visibility="{x:Bind VM.SelectedWorktree.StatusMoreVisibility, Mode=OneWay, FallbackValue=Collapsed}" />
+                            </StackPanel>
+
+                            <!-- copy-on-write, and when this was checked -->
+                            <StackPanel Spacing="2" Visibility="{x:Bind VM.SelectedWorktree.CowDetailVisibility, Mode=OneWay, FallbackValue=Collapsed}">
+                                <TextBlock Text="Copy-on-write" Style="{StaticResource SectionLabel}" />
+                                <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailCow, Mode=OneWay, FallbackValue=''}" TextWrapping="Wrap" Margin="2,0,0,0" />
+                                <TextBlock Text="{x:Bind VM.SelectedWorktree.PruneText, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Margin="2,0,0,0" />
+                            </StackPanel>
+                            <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailStatusTime, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="2,0,0,0" />
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>

@@ -138,12 +138,28 @@ public sealed class StartupOptions
     public string? RunSetupPath { get; private set; }
     /// <summary>--settings: open Repository settings (for a snapshot).</summary>
     public bool OpenSettings { get; private set; }
+    /// <summary>--changes [scope]: open the Changes view on the --select worktree; scope is "uncommitted", "all" or the start of a commit's name.</summary>
+    public string? Changes { get; private set; }
+    /// <summary>--changes-file &lt;path&gt;: bring that file to the top of the Changes view (for a snapshot).</summary>
+    public string? ChangesFile { get; private set; }
+    /// <summary>--changes-dump &lt;out.json&gt;: write what the Changes view holds (files, counts, lines).</summary>
+    public string? ChangesDumpPath { get; private set; }
+    /// <summary>--summarize claude|codex: have that tool write the summary of the --select worktree before the snapshot.</summary>
+    public string? Summarize { get; private set; }
+    /// <summary>--summary-dump &lt;out.json&gt;: write what the details pane holds (the summary, the commit and file rows).</summary>
+    public string? SummaryDumpPath { get; private set; }
+    /// <summary>--refresh-again: look at the worktrees a second time before the dump, as the timer would (the dump's timings are then the second look's).</summary>
+    public bool RefreshAgain { get; private set; }
+    /// <summary>--found-dump &lt;out.json&gt;: write the setups from before that the walkthrough found (and, with --wizard-adopt, how using them went).</summary>
+    public string? FoundDumpPath { get; private set; }
+    /// <summary>--wizard-adopt: press "Use them" on the walkthrough's first screen. This really runs setup for each one found.</summary>
+    public bool WizardAdopt { get; private set; }
     /// <summary>--update-feed &lt;url&gt;: a stand-in for the GitHub address; only http://127.0.0.1 or http://localhost, only with --hidden.</summary>
     public string? UpdateFeed { get; private set; }
     /// <summary>--update-result &lt;out.json&gt;: check the test feed, verify the download, write what would have happened; never starts a file.</summary>
     public string? UpdateResultPath { get; private set; }
 
-    public bool Unattended => SnapshotPath != null || DumpPath != null || SelfTestChecksPath != null || RunSetupPath != null || UpdateResultPath != null;
+    public bool Unattended => SnapshotPath != null || DumpPath != null || SelfTestChecksPath != null || RunSetupPath != null || UpdateResultPath != null || ChangesDumpPath != null || SummaryDumpPath != null || FoundDumpPath != null;
 
     public static StartupOptions Parse(string[] argv)
     {
@@ -169,6 +185,16 @@ public sealed class StartupOptions
                 case "--selftest-checks": o.SelfTestChecksPath = Next(); o.ExitAfter = true; break;
                 case "--run-setup": o.RunSetupPath = Next(); o.ExitAfter = true; break;
                 case "--settings": o.OpenSettings = true; break;
+                case "--changes":
+                    o.Changes = i + 1 < argv.Length && !argv[i + 1].StartsWith("--", StringComparison.Ordinal) ? Next() : "";
+                    break;
+                case "--changes-file": o.ChangesFile = Next(); break;
+                case "--changes-dump": o.ChangesDumpPath = Next(); o.Changes ??= ""; break;
+                case "--summarize": o.Summarize = Next(); break;
+                case "--refresh-again": o.RefreshAgain = true; break;
+                case "--found-dump": o.FoundDumpPath = Next(); break;
+                case "--wizard-adopt": o.WizardAdopt = true; break;
+                case "--summary-dump": o.SummaryDumpPath = Next(); o.Summarize ??= ""; break;
                 case "--theme": Next(); break;   // read in App's constructor
                 case "--update-feed": o.UpdateFeed = Next(); break;
                 case "--update-result": o.UpdateResultPath = Next(); o.ExitAfter = true; break;

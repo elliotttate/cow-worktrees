@@ -253,6 +253,82 @@ folder or from the base, the Codex section or the daily task missing), or when o
 of the tool. **Fix it** runs setup again with the saved settings. A checkout that some tool made after
 setup has no hooks until setup runs again; that shows on the settings page, without a banner.
 
+## Installed again? Setups from before
+
+A setup lives on the Dev Drive: the folder with `cow-config.json`, the base and the worktrees. The app's
+list of repositories lives in the app's own folder. When the app is installed again, or that folder is
+lost, the setups are still there. The walkthrough's first screen looks for them (two folder levels deep
+on every ReFS drive; it reads folder names and each `cow-config.json`, nothing else) and lists those
+that are not in the app: name, folder, project and number of worktrees. **Use them** runs `setup.ps1`
+again for each ticked one with the choices its settings record, which adds it to the app and points
+Claude Code, Codex and the daily upkeep at this copy of the tool. Nothing is copied or built and no
+worktree is touched. A setup whose project folder is gone is listed with the reason and cannot be
+ticked. "Get started" below it sets up another project as before.
+
+## The details pane and summaries
+
+Selecting a worktree shows it on the right: its name, kind and folder; a **Summary** card; four numbers
+(changed files, new files, commits that are on no remote, time since the last activity); the buttons;
+the branch and last commit; then the commits that are on no remote and the changed files, one row each.
+A commit's row opens the Changes view on that commit, a file's row opens it at that file.
+
+**Summarize** has Claude or Codex write a few lines about the worktree: one sentence on what it is for,
+two to five points on what was done, and an "Open:" line when something is unfinished. The arrow next
+to the button chooses the tool (the button itself uses the one chosen last), copies the summary or
+removes it. It is written only when you press the button, never by itself.
+
+- **What is sent.** The worktree's name and branch, its commit titles, the list of changed files with
+  their line counts, and excerpts of the changed lines (about 60,000 characters at most): the work since
+  the worktree was made, or for other checkouts what is not on the upstream branch. It goes to
+  Anthropic or OpenAI through the tool as it is set up and signed in on this PC, and counts against
+  that account like any other use of it.
+- **How it runs.** `claude -p` with `--tools ""` (no file or shell tools), or `codex exec` with
+  `--sandbox read-only`, in an empty folder of the app's own (`summary-work` next to `pools.json`), with
+  the text on standard input. The tool cannot change the worktree and does not look at it itself.
+- **Where it is kept.** `summaries.json` next to `pools.json`. When the worktree's commit or its count of
+  changed or new files differs from when the summary was written, the card says the worktree has
+  changed since; **Update** writes a new one. `ClaudeModel` (default `haiku`) and `CodexModel` (default:
+  the one Codex is set up with) in that file name the model.
+- **Keep every worktree's summary up to date** (in the arrow's menu; off until you turn it on). After
+  each look at the worktrees, every one that has work of its own (changed or new files, or commits of its
+  own) and no summary of its present state gets one, one at a time, with the tool chosen last. A worktree
+  is left alone until two minutes after its last activity, so one that is being worked on is not
+  summarised at every step; the base and worktrees without work get none. Each summary sends that
+  worktree's commit titles and changed lines as above, so this option uses the account without asking
+  each time. A summary that fails is not tried again until the worktree changes, and after three
+  failures in a row the option rests until the app is started again.
+- A tool that is not installed, not signed in, or refuses its model answers in its own words in the card.
+
+## Changes
+
+**View changes** (the button at the top of a worktree's details, the right-click menu, or Ctrl+Shift+D)
+fills the window with what changed in the selected worktree. It works on every row: copy-on-write
+worktrees, plain checkouts and the project's main folder.
+
+- **The box at the top** chooses what is compared: *Uncommitted changes* (edits and new files that are
+  not in a commit yet), *Everything since this worktree was made* (its commits and its uncommitted edits
+  together; for a worktree without a recorded start it is everything that is not on its upstream branch,
+  or not on the repository's base ref), or one of its commits. A worktree with nothing uncommitted opens
+  on everything since it was made.
+- **On the left**, the changed files: a coloured letter (M modified, A added, D deleted, R renamed, N a
+  new file Git does not track yet, ! in conflict), lines added and removed, and a small bar of their
+  proportion. Type in the filter to narrow the list. Choosing a file scrolls to it; scrolling the lines
+  moves the selection along.
+- **On the right**, every changed line: green for added, red for removed, three unchanged lines around
+  them, old and new line numbers, the changed part of a line marked, and the code coloured (comments,
+  strings, numbers, keywords). Each file's header folds it and has buttons to open the file, show it in
+  Explorer and copy its path or its changes as a patch.
+- **Keys:** Esc back, F5 read again, F11 whole screen, Ctrl+F filter, J and K (or Alt+Down, Alt+Up)
+  next and previous file.
+
+It only reads. Git runs with `--no-optional-locks`, as everywhere in the app, so looking never takes
+`index.lock` in a folder an agent is working in. When the worktree changes while the view is open, a
+line at the top offers to read it again. Limits keep a huge change from filling memory: 6,000 changed
+lines are read per file and 200,000 in all, 2,000 new files are listed, new files over 768 KB and binary
+files get a note instead of lines, and a file shows its first 1,500 lines until "Show them" is pressed.
+With more than 150 files the list opens folded. Files that only look changed to Git (see above) are
+listed last, marked with ≈, and are not counted.
+
 ## Moving a worktree to copy-on-write
 
 A full worktree outside the pool (kind `checkout`, `Codex` or `Claude`; never the project's main folder)
@@ -393,6 +469,14 @@ and never opens the walkthrough by itself.
 | `--wizard [step]` | open the walkthrough on that screen: `welcome` (the default), `checks`, `project`, `location`, `tools`, `builds`, `review`, `done`. Without `--snapshot` or `--dump` it opens and stays, which is what the UI Automation test drives. |
 | `--wizard-state <json>` | answers to fill in before the snapshot: `repo`, `root`, `baseRef`, `claude`, `codex`, `schedule`, `buildCommand`, and `autoStart` (with `--wizard review`: press Set up and wait for it to end). Read only in an unattended run. |
 | `--settings` | open Repository settings before the snapshot. Read only in an unattended run. |
+| `--changes [scope]` | open the Changes view on the `--select` worktree: `uncommitted`, `all`, or the start of a commit's name; without a scope the view picks. Without `--snapshot` or `--dump` it opens and stays. |
+| `--changes-file <path>` | bring the file whose path ends with this to the top of the Changes view before the snapshot |
+| `--summarize <claude\|codex>` | have that tool write the summary of the `--select` worktree before the snapshot. `COW_CLAUDE_CLI` and `COW_CODEX_CLI` name a stand-in for the tool (the tests use them). |
+| `--found-dump <out.json>` | write the setups from before that the walkthrough's first screen found. `COW_SCAN_ROOTS` (folders, separated by semicolons) replaces the drives it looks on; the tests use it so that real setups are never listed. |
+| `--wizard-adopt` | press "Use them" on that screen: this really runs setup for each one found |
+| `--refresh-again` | look at the worktrees a second time before `--dump`, as the timer would; the dump's `seconds`, `rowsSeconds` and `scriptSkipped` are then the second look's |
+| `--summary-dump <out.json>` | write what the details pane holds: the summary, the numbers, the commit and file rows |
+| `--changes-dump <out.json>` | write what the Changes view holds (the scopes, each file's kind, counts and lines), then quit with `--exit` |
 | `--selftest-checks <out.json>` | write what Check this PC finds, the tool folder, whether it is an installed copy and the version, then quit |
 | `--run-setup <options.json>` | run a setup, a removal, a move or a create through the same code as the walkthrough, Repository settings and the dialogs, write the outcome, then quit. This really does what it is asked. |
 | `--fake-checks <json>` | **only with `--hidden`.** Replace results of Check this PC: `windows`, `git`, `devDrive` (`ok`, `missing`, `tooOld`), `drives` (`letter`, `label`, `freeGB`, `totalGB`), `claude`, `codex` |
@@ -430,6 +514,9 @@ top folder.
 |---|---|---|
 | `gui\tests\setup_runner.ps1` | The app sets a repository up and removes it again the way the walkthrough does (`--run-setup`), on a throwaway repository whose path has a space: the registry, the locked base, the hooks, the Codex section and the task; a setup on a drive that is not ReFS fails with the plain-words reason; a second run with Codex and the daily task off removes exactly those; a full worktree is moved to copy-on-write and its old path becomes a junction, with an untracked and an edited file carried over; a create that is stopped leaves nothing behind; removal with `-RemovePool` leaves nothing behind. | `[-Exe <exe>] [-Drive E]`; needs a Dev Drive |
 | `gui\tests\ui_setup_wizard.ps1` | Through UI Automation, hidden: every screen of the walkthrough to "You're all set", then the same things as above and that the main window shows the repository; in Repository settings, Codex off and Apply removes the section and keeps the hooks; with the hooks file deleted by hand the banner appears and Fix it puts them back; a full worktree is moved through the Move to copy-on-write dialog, its old folder becomes a junction, and its untracked file and branch are in the clone; App settings and About opens; Remove takes away the registry entry, hooks, section and task and leaves the base copy. | `[-Exe <exe>] [-Drive E] [-CaptureDir <folder>]`; needs a Dev Drive |
+| `gui\tests\changes_view.ps1` | The Changes view on a throwaway repository under `%TEMP%` with every kind of change: the files it lists, what happened to each, the counts, the lines and the marked words, for uncommitted edits, for all work on a branch and for single commits; a file that only looks changed; a clean worktree. `-Shots <folder>` also saves a picture in each theme. | `gui\tests\changes_view.ps1 [-Exe <CowWorktrees.exe>]` |
+| `gui\tests\summary_view.ps1` | The summary and the details pane's rows, with stand-ins for Claude and Codex so nothing is sent anywhere: what the tool is given and how it is run, the headline, points and "Open:" line read from its answer, saving and showing again, "changed since", a failing tool and a missing tool. `-Shots <folder>` also saves pictures. | `gui\tests\summary_view.ps1 [-Exe <CowWorktrees.exe>]` |
+| `gui\tests\wizard_found.ps1` | Setups from before: makes two with `setup.ps1` under `<Drive>:\cow-found-test-<id>` (no daily task), then starts the app with a new, empty folder of its own. The walkthrough lists both, one with a worktree and one whose project is gone; "Use them" adds the first (the list, the Claude Code hooks, the Codex text) and leaves its worktree and the other one alone; afterwards it is not offered again. | `gui\tests\wizard_found.ps1 [-Exe <CowWorktrees.exe>] [-Drive E]` |
 | `gui\tests\update_selftest.ps1` | The update check and download against a made-up release served from `127.0.0.1`: a newer version with the right checksum is verified ("would start"); a wrong checksum is refused and the file deleted; no checksum is refused; the same, an older and a skipped version offer nothing; an installer with another name is ignored; with the server down nothing is shown and one line is logged. | `[-Exe <exe>]` |
 | `gui\tests\ui_create_remove.ps1` | Through UI Automation, hidden, on a real pool: the New worktree dialog creates `gui-selftest-<time>`; with an untracked file in it Remove is refused; without it Remove removes it. Touches only the worktree it makes. | `-Root <pool root> [-CowHome <folder>] [-Exe <exe>] [-CaptureDir <folder>]`; its default `-Exe` is the Debug build, so pass `-Exe gui\publish\CowWorktrees.exe` |
 | `gui\tests\compare_status.ps1` | The app's changed / untracked / unpushed counts (`--dump`) against plain `git status --porcelain` and `git rev-list`, for every worktree; the app's changed count plus its "only look changed" count must equal Git's. | `[-Pool <name or root>] [-CowHome <folder>] [-Exe <exe>]` |

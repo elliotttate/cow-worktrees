@@ -56,6 +56,7 @@ public sealed partial class MainWindow : Window
 
         InitializeLayout();
         InitializeSetup();
+        InitializeDetails();
         UpdatePages();
     }
 
@@ -257,6 +258,8 @@ public sealed partial class MainWindow : Window
             item.Click += (_, _) => act();
             menu.Items.Add(item);
         }
+        Add("View changes", "\uE8FD", () => OpenChanges(row), !row.IsMissing);
+        menu.Items.Add(new MenuFlyoutSeparator());
         Add("Open in Explorer", "", () => Open(row, Launcher.Explorer));
         Add("Open terminal here", "", () => Open(row, Launcher.Terminal));
         Add($"Open in {VM.EditorName}", "", () => Open(row, p => Launcher.Editor(VM.EditorPath!, p)), VM.EditorAvailable);
@@ -667,6 +670,7 @@ public sealed partial class MainWindow : Window
                 sizers[Math.Clamp(drag.Index, 0, sizers.Length - 1)].SimulateDrag(drag.Delta);
                 AppLog.Write($"unattended: drag edge {drag.Index} by {drag.Delta}: widths {before} -> {string.Join("/", ColumnLayout.Current.Widths)}");
             }
+            await OpenChangesUnattendedAsync();
             await Task.Delay(1200);   // layout, and the selected row's unpushed log
             if (_options.SnapshotPath != null) await SaveSnapshotAsync(_options.SnapshotPath);
             if (_options.DumpPath != null)

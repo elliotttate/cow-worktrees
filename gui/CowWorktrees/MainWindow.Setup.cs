@@ -106,6 +106,12 @@ public sealed partial class MainWindow
             OpenWizard(ParseStep(step));
             return;
         }
+        if (_options.Changes != null && !_options.Unattended)
+        {
+            // --changes without a snapshot: the app opens on the --select worktree's changes and stays
+            OpenChangesAtStart();
+            return;
+        }
         if (_options.Hidden || _options.Unattended || !VM.HasNoRepositories || VM.Settings.WalkthroughOffered) return;
         VM.Settings.WalkthroughOffered = true;
         VM.Settings.Save();

@@ -45,7 +45,12 @@ public sealed class MainViewModel : ObservableObject
         ColumnLayout.Current.SetWeights(Settings.ColumnWeights);
 
         _refreshTimer = dispatcher.CreateTimer();
-        _refreshTimer.Tick += async (_, _) => { if (!_refreshing) await RefreshAsync(); };
+        _refreshTimer.Tick += async (_, _) =>
+        {
+            // Not looked at (minimised, or hidden while a job finishes): a look every five minutes is enough.
+            if (!WindowVisible && LastRefresh is { } last && DateTime.Now - last < TimeSpan.FromMinutes(5)) return;
+            if (!_refreshing) await RefreshAsync();
+        };
         SetInterval(Settings.RefreshIntervalSeconds, save: false);
 
         _tickTimer = dispatcher.CreateTimer();
@@ -86,6 +91,24 @@ public sealed class MainViewModel : ObservableObject
     // ---- pools -----------------------------------------------------------------------------------------------
     public ObservableCollection<Pool> Pools { get; } = new();
     public Pool? Pool => _pool;
+
+    /// <summary>Set by the window. Coming back into view after a pause looks again at once.</summary>
+    public bool WindowVisible { get; private set; } = true;
+
+    public void SetWindowVisible(bool visible)
+    {
+        if (WindowVisible == visible) return;
+        WindowVisible = visible;
+        if (visible && !_refreshing && _refreshTimer.IsRunning && LastRefresh is { } last && DateTime.Now - last > _refreshTimer.Interval) _ = RefreshAsync();
+    }
+
+    /// <summary>What the listing script said last, and the state of the pool's worktrees it said it about.</summary>
+    private sealed record CowAnswer(string Root, string Key, List<CowListRow> Rows, DateTime At);
+    private CowAnswer? _cowAnswer;
+    /// <summary>How long the last look took until every row was complete and shown (the whole look: <see cref="LastDuration"/>).</summary>
+    public TimeSpan LastRowsDuration { get; private set; }
+    /// <summary>The last look did not need the listing script: nothing it reports had changed.</summary>
+    public bool LastScriptSkipped { get; private set; }
 
     /// <summary>The pool picker's selection; switching clears the list and refreshes for the new pool.</summary>
     public Pool? SelectedPool
@@ -439,7 +462,10 @@ public sealed class MainViewModel : ObservableObject
         var cow = _cow;
         var health = _health;
         var healthTask = Task.Run(() => health.ReadAsync());
-        var cowTask = cow.ScriptExists ? Task.Run(() => cow.ListAsync()) : null;
+        // The listing script takes about three seconds (PowerShell, then Git again for every worktree). With an
+        // answer from an earlier look it is not started here: after the probes, only if what it reports changed.
+        bool cowKnown = cow.ScriptExists && _cowAnswer != null && _cowAnswer.Root == pool.Root && DateTime.Now - _cowAnswer.At < TimeSpan.FromMinutes(10);
+        var cowTask = cow.ScriptExists && !cowKnown ? Task.Run(() => cow.ListAsync()) : null;
         if (!cow.ScriptExists)
             problems.Add(string.IsNullOrEmpty(cow.ScriptPath)
                 ? "The cow-worktrees scripts were not found next to this app, so create, remove, prune and refresh are unavailable"
@@ -463,7 +489,18 @@ public sealed class MainViewModel : ObservableObject
             ApplyView();
             await Task.WhenAll(entries.Where(e => !e.Bare).Select(e => ProbeRowAsync(_rows[e.Path], e)));
             if (generation != _generation) return;
+            // Every row is complete now: show them in their order, with the counts, without waiting for the rest.
+            ApplyView();
+            RaiseSummary();
+            LastRowsDuration = sw.Elapsed;
         }
+
+        // What the script's answer depends on: which copy-on-write worktrees there are, where each stands and how
+        // many changes it has. (Its idle days move on by themselves; ten minutes old is close enough.)
+        string cowKey = string.Join("|", _rows.Values.Where(r => r.IsCow).OrderBy(r => r.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(r => $"{r.Path}*{r.FullSha ?? r.HeadFromList}*{r.Branch}*{r.Changed}*{r.Untracked}*{r.Phantom}*{r.Unpushed}*{r.IsLocked}*{r.IsMissing}"));
+        if (cowKnown && _cowAnswer!.Key != cowKey) cowTask = Task.Run(() => cow.ListAsync());
+        LastScriptSkipped = cow.ScriptExists && cowTask == null;
 
         if (cowTask != null)
         {
@@ -471,6 +508,7 @@ public sealed class MainViewModel : ObservableObject
             {
                 var cowRows = await cowTask;
                 if (generation != _generation) return;
+                _cowAnswer = new CowAnswer(pool.Root, cowKey, cowRows, DateTime.Now);
                 var byPath = cowRows.ToDictionary(c => GitService.NormalizePath(c.Path), StringComparer.OrdinalIgnoreCase);
                 foreach (var row in _rows.Values.Where(r => r.IsCow))
                     row.ApplyCow(byPath.GetValueOrDefault(row.Path), DefaultPruneDays);
@@ -890,6 +928,8 @@ public sealed class MainViewModel : ObservableObject
         pool = _pool?.Name,
         refreshedAt = LastRefresh,
         seconds = LastDuration.TotalSeconds,
+        rowsSeconds = LastRowsDuration.TotalSeconds,
+        scriptSkipped = LastScriptSkipped,
         problem = Problem,
         health = HealthItems.Select(h => new { h.Title, h.Value, h.Detail, Severity = h.Severity.ToString() }),
         worktrees = _rows.Values.OrderBy(r => r.Path).Select(r => new

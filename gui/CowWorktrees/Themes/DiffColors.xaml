@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Colours of the Changes view: green for what was added, red for what was removed, and one colour per
+     kind of change in the file list. Each has a light, a dark and a high-contrast value. -->
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="DiffSurfaceBrush" Color="#FF16181D" />
+            <SolidColorBrush x:Key="DiffFileHeaderBrush" Color="#FF22262E" />
+            <SolidColorBrush x:Key="DiffFileBorderBrush" Color="#FF30363F" />
+            <SolidColorBrush x:Key="DiffGutterTextBrush" Color="#FF6E7681" />
+            <SolidColorBrush x:Key="DiffCodeTextBrush" Color="#FFE6EDF3" />
+            <SolidColorBrush x:Key="SyntaxCommentBrush" Color="#FF8B949E" />
+            <SolidColorBrush x:Key="SyntaxStringBrush" Color="#FFA5D6FF" />
+            <SolidColorBrush x:Key="SyntaxNumberBrush" Color="#FFFFA657" />
+            <SolidColorBrush x:Key="SyntaxKeywordBrush" Color="#FFD2A8FF" />
+            <SolidColorBrush x:Key="SyntaxMetaBrush" Color="#FF79C0FF" />
+
+            <SolidColorBrush x:Key="DiffAddedLineBrush" Color="#2E2EA043" />
+            <SolidColorBrush x:Key="DiffAddedGutterBrush" Color="#4D2EA043" />
+            <SolidColorBrush x:Key="DiffAddedWordBrush" Color="#802EA043" />
+            <SolidColorBrush x:Key="DiffAddedTextBrush" Color="#FF56D364" />
+            <SolidColorBrush x:Key="DiffAddedBarBrush" Color="#FF3FB950" />
+
+            <SolidColorBrush x:Key="DiffRemovedLineBrush" Color="#2EF85149" />
+            <SolidColorBrush x:Key="DiffRemovedGutterBrush" Color="#4DF85149" />
+            <SolidColorBrush x:Key="DiffRemovedWordBrush" Color="#80F85149" />
+            <SolidColorBrush x:Key="DiffRemovedTextBrush" Color="#FFFF7B72" />
+            <SolidColorBrush x:Key="DiffRemovedBarBrush" Color="#FFF85149" />
+
+            <SolidColorBrush x:Key="DiffHunkBrush" Color="#26388BFD" />
+            <SolidColorBrush x:Key="DiffHunkTextBrush" Color="#FF79C0FF" />
+            <SolidColorBrush x:Key="DiffBarEmptyBrush" Color="#33FFFFFF" />
+
+            <SolidColorBrush x:Key="DiffModifiedTextBrush" Color="#FFE3B341" />
+            <SolidColorBrush x:Key="DiffModifiedFillBrush" Color="#33E3B341" />
+            <SolidColorBrush x:Key="DiffAddedFillBrush" Color="#333FB950" />
+            <SolidColorBrush x:Key="DiffRemovedFillBrush" Color="#33F85149" />
+            <SolidColorBrush x:Key="DiffRenamedTextBrush" Color="#FF79C0FF" />
+            <SolidColorBrush x:Key="DiffRenamedFillBrush" Color="#33388BFD" />
+            <SolidColorBrush x:Key="DiffNewTextBrush" Color="#FF39D0D8" />
+            <SolidColorBrush x:Key="DiffNewFillBrush" Color="#3339D0D8" />
+            <SolidColorBrush x:Key="DiffConflictTextBrush" Color="#FFF778BA" />
+            <SolidColorBrush x:Key="DiffConflictFillBrush" Color="#33F778BA" />
+            <SolidColorBrush x:Key="DiffQuietTextBrush" Color="#FF8B949E" />
+            <SolidColorBrush x:Key="DiffQuietFillBrush" Color="#268B949E" />
+        </ResourceDictionary>
+
+        <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="DiffSurfaceBrush" Color="#FFFFFFFF" />
+            <SolidColorBrush x:Key="DiffFileHeaderBrush" Color="#FFF6F8FA" />
+            <SolidColorBrush x:Key="DiffFileBorderBrush" Color="#FFD0D7DE" />
+            <SolidColorBrush x:Key="DiffGutterTextBrush" Color="#FF8C959F" />
+            <SolidColorBrush x:Key="DiffCodeTextBrush" Color="#FF1F2328" />
+            <SolidColorBrush x:Key="SyntaxCommentBrush" Color="#FF6E7781" />
+            <SolidColorBrush x:Key="SyntaxStringBrush" Color="#FF0A3069" />
+            <SolidColorBrush x:Key="SyntaxNumberBrush" Color="#FF953800" />
+            <SolidColorBrush x:Key="SyntaxKeywordBrush" Color="#FF8250DF" />
+            <SolidColorBrush x:Key="SyntaxMetaBrush" Color="#FF0550AE" />
+
+            <SolidColorBrush x:Key="DiffAddedLineBrush" Color="#FFE6FFEC" />
+            <SolidColorBrush x:Key="DiffAddedGutterBrush" Color="#FFCCFFD8" />
+            <SolidColorBrush x:Key="DiffAddedWordBrush" Color="#FFABF2BC" />
+            <SolidColorBrush x:Key="DiffAddedTextBrush" Color="#FF1A7F37" />
+            <SolidColorBrush x:Key="DiffAddedBarBrush" Color="#FF2DA44E" />
+
+            <SolidColorBrush x:Key="DiffRemovedLineBrush" Color="#FFFFEBE9" />
+            <SolidColorBrush x:Key="DiffRemovedGutterBrush" Color="#FFFFD7D5" />
+            <SolidColorBrush x:Key="DiffRemovedWordBrush" Color="#FFFFB8B3" />
+            <SolidColorBrush x:Key="DiffRemovedTextBrush" Color="#FFCF222E" />
+            <SolidColorBrush x:Key="DiffRemovedBarBrush" Color="#FFCF222E" />
+
+            <SolidColorBrush x:Key="DiffHunkBrush" Color="#FFDDF4FF" />
+            <SolidColorBrush x:Key="DiffHunkTextBrush" Color="#FF0550AE" />
+            <SolidColorBrush x:Key="DiffBarEmptyBrush" Color="#26000000" />
+
+            <SolidColorBrush x:Key="DiffModifiedTextBrush" Color="#FF9A6700" />
+            <SolidColorBrush x:Key="DiffModifiedFillBrush" Color="#33D4A72C" />
+            <SolidColorBrush x:Key="DiffAddedFillBrush" Color="#332DA44E" />
+            <SolidColorBrush x:Key="DiffRemovedFillBrush" Color="#26CF222E" />
+            <SolidColorBrush x:Key="DiffRenamedTextBrush" Color="#FF0969DA" />
+            <SolidColorBrush x:Key="DiffRenamedFillBrush" Color="#260969DA" />
+            <SolidColorBrush x:Key="DiffNewTextBrush" Color="#FF1B7C83" />
+            <SolidColorBrush x:Key="DiffNewFillBrush" Color="#261B7C83" />
+            <SolidColorBrush x:Key="DiffConflictTextBrush" Color="#FFBF3989" />
+            <SolidColorBrush x:Key="DiffConflictFillBrush" Color="#26BF3989" />
+            <SolidColorBrush x:Key="DiffQuietTextBrush" Color="#FF656D76" />
+            <SolidColorBrush x:Key="DiffQuietFillBrush" Color="#1F656D76" />
+        </ResourceDictionary>
+
+        <ResourceDictionary x:Key="HighContrast">
+            <SolidColorBrush x:Key="DiffSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="DiffFileHeaderBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="DiffFileBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="DiffGutterTextBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
+            <SolidColorBrush x:Key="DiffCodeTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SyntaxCommentBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
+            <SolidColorBrush x:Key="SyntaxStringBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SyntaxNumberBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SyntaxKeywordBrush" Color="{ThemeResource SystemColorHotlightColor}" />
+            <SolidColorBrush x:Key="SyntaxMetaBrush" Color="{ThemeResource SystemColorHotlightColor}" />
+
+            <SolidColorBrush x:Key="DiffAddedLineBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="DiffAddedGutterBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="DiffAddedWordBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="DiffAddedTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="DiffAddedBarBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+
+            <SolidColorBrush x:Key="DiffRemovedLineBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="DiffRemovedGutterBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="DiffRemovedWordBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="DiffRemovedTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="DiffRemovedBarBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
+
+            <SolidColorBrush x:Key="DiffHunkBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="DiffHunkTextBrush" Color="{ThemeResource SystemColorHotlightColor}" />
+            <SolidColorBrush x:Key="DiffBarEmptyBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
+
+            <SolidColorBrush x:Key="DiffModifiedTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="DiffModifiedFillBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="DiffAddedFillBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="DiffRemovedFillBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="DiffRenamedTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="DiffRenamedFillBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="DiffNewTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="DiffNewFillBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="DiffConflictTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="DiffConflictFillBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="DiffQuietTextBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
+            <SolidColorBrush x:Key="DiffQuietFillBrush" Color="Transparent" />
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

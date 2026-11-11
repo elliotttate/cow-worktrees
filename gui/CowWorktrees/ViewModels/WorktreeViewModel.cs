@@ -11,7 +11,7 @@ public enum WorktreeKind { Main, Cow, Base, Codex, Claude, Checkout }
 // Codex under $CODEX_HOME\worktrees or Documents\Codex, Claude Code under <repo>\.claude\worktrees.
 
 /// <summary>One worktree row. Updated in place on the UI thread so the list keeps its selection and scroll.</summary>
-public sealed class WorktreeViewModel : ObservableObject
+public sealed partial class WorktreeViewModel : ObservableObject
 {
     private static readonly string[] AllProperties =
         typeof(WorktreeViewModel).GetProperties().Select(p => p.Name).Where(n => n != nameof(StatusLines) && n != nameof(UnpushedLog)).ToArray();
