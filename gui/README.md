@@ -4,8 +4,10 @@ A native Windows app (WinUI 3, Windows App SDK 1.8, C# / .NET 8) for **cow-workt
 as copy-on-write clones of a built base worktree on a ReFS Dev Drive. It walks a newcomer through getting
 started, sets a repository up, connects Claude Code and Codex, and then shows every worktree of the
 repository: which ones are dirty or hold commits that exist nowhere else, which ones could be pruned, and
-whether the base that new worktrees are cloned from is current. It creates, removes, prunes and moves
-worktrees, refreshes the base, changes the setup later and keeps itself up to date.
+whether the base that new worktrees are cloned from is current. It shows what each worktree changed, line
+by line and in colour, with a summary by Claude or Codex if you want one, and what the folders really
+take on the drive. It creates, removes, prunes and moves worktrees, refreshes the base, changes the setup
+later and keeps itself up to date.
 
 The app does not re-implement any of this. Setup, removal and every worktree action are the PowerShell
 scripts of this repository, and the app shows the exact command line of each one before and while it runs
@@ -151,7 +153,8 @@ Dirty rows are tinted with an orange bar; red = broken or commits at risk, blue 
 - **Filtering**: the count chips (`3 dirty`, `1 unpushed`, `2 prunable`, `5 worktrees`) filter the list when
   clicked; the Filter box has the same choices plus copy-on-write / other checkouts; Ctrl+F searches by name,
   branch or path.
-- **Details pane** (Ctrl+D hides it; drag its edge to resize): full commit, upstream, the unpushed commits,
+- **Details pane** (Ctrl+D hides it; drag its edge to resize; more under
+  [The details pane and summaries](#the-details-pane-and-summaries)): a summary, full commit, upstream, the unpushed commits,
   the folder's own and shared disk space once it has been measured (see [Disk space](#disk-space)),
   the pool data from `cow_worktree.ps1 -List -Json` (commits since the worktree was made, start commit, why
   `-Prune` keeps it), its `git status` lines, and the buttons: Explorer, Terminal, editor, Copy path,
@@ -333,12 +336,15 @@ ticked. "Get started" below it sets up another project as before.
 Selecting a worktree shows it on the right: its name, kind and folder; a **Summary** card; four numbers
 (changed files, new files, commits that are on no remote, time since the last activity); the buttons;
 the branch and last commit; then the commits that are on no remote and the changed files, one row each.
-A commit's row opens the Changes view on that commit, a file's row opens it at that file.
+A commit's row opens the Changes view on that commit, a file's row opens it at that file. Below them:
+the folder's disk space as last measured on the Base tab, and for a copy-on-write worktree where it
+started and whether pruning would remove it.
 
 **Summarize** has Claude or Codex write a few lines about the worktree: one sentence on what it is for,
 two to five points on what was done, and an "Open:" line when something is unfinished. The arrow next
 to the button chooses the tool (the button itself uses the one chosen last), copies the summary or
-removes it. It is written only when you press the button, never by itself.
+removes it. It is written only when you press the button, unless you turn on the option at the end of
+this list.
 
 - **What is sent.** The worktree's name and branch, its commit titles, the list of changed files with
   their line counts, and excerpts of the changed lines (about 60,000 characters at most): the work since
@@ -367,6 +373,8 @@ removes it. It is written only when you press the button, never by itself.
 **View changes** (the button at the top of a worktree's details, the right-click menu, or Ctrl+Shift+D)
 fills the window with what changed in the selected worktree. It works on every row: copy-on-write
 worktrees, plain checkouts and the project's main folder.
+
+![The Changes view](docs/changes.png)
 
 - **The box at the top** chooses what is compared: *Uncommitted changes* (edits and new files that are
   not in a commit yet), *Everything since this worktree was made* (its commits and its uncommitted edits
@@ -638,7 +646,7 @@ adds them, the ones of the views in `Views\` included, and `build.ps1` checks th
 ### A release
 
 ```powershell
-.\release.ps1 -Version 1.1.0     # in the repository's top folder
+.\release.ps1 -Version 1.2.0     # in the repository's top folder
 ```
 
 `release.ps1` runs `gui\build.ps1 -Version <version>`, then `package.ps1`, which stages the release in

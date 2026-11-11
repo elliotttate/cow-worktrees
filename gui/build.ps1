@@ -17,7 +17,7 @@ if ($Version) { $publishArgs += "-p:Version=$Version" }
 dotnet @publishArgs
 if ($LASTEXITCODE) { throw "dotnet publish failed ($LASTEXITCODE)" }
 # The published exe dies in InitializeComponent without the app's compiled XAML; the project adds it, check it did.
-foreach ($f in 'CowWorktrees.exe', 'CowWorktrees.pri', 'MainWindow.xbf', 'App.xbf', 'Views\SetupWizard.xbf', 'Views\RepositorySettings.xbf', 'coreclr.dll', 'Microsoft.WindowsAppRuntime.dll', 'Microsoft.UI.Xaml.dll') {
+foreach ($f in 'CowWorktrees.exe', 'CowWorktrees.pri', 'MainWindow.xbf', 'App.xbf', 'Views\SetupWizard.xbf', 'Views\RepositorySettings.xbf', 'Views\ChangesView.xbf', 'Themes\DiffColors.xbf', 'coreclr.dll', 'Microsoft.WindowsAppRuntime.dll', 'Microsoft.UI.Xaml.dll') {
     if (-not (Test-Path -LiteralPath (Join-Path $Out $f))) { throw "publish is missing $f" }
 }
 Write-Output (Join-Path $Out 'CowWorktrees.exe')

@@ -5,7 +5,7 @@ release.ps1 - build the two files a release ships:
   dist\cow-worktrees-<version>.zip         the tool folder, to unzip anywhere (package.ps1)
   dist\CowWorktrees-Setup-<version>.exe    the installer (installer\CowWorktrees.iss)
 
-  .\release.ps1 -Version 1.1.0
+  .\release.ps1 -Version 1.2.0
 
 It runs gui\build.ps1 -Version <version> (the app, into gui\publish), then package.ps1 (stages the folder
 and zips it), then Inno Setup's compiler on that same staged folder, and prints both files with their

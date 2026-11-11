@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
+
+The app now shows what a worktree did, not only that it changed: a full-window view of every changed
+line, a summary written by Claude or Codex, and what the folders really take on the drive. It is also
+faster, and an app installed again finds the setups made before.
 
 ### Added
 

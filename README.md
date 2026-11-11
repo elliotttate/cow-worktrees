@@ -222,6 +222,12 @@ It says "repository" where the scripts and these pages say "pool".
 - **Worktrees.** Every worktree of the repository, including ones outside the pool, with its branch,
   uncommitted changes, unpushed commits and idle time; dirty ones are highlighted. Create, remove, prune
   and move to copy-on-write from here.
+- **Changes.** "View changes" on a worktree fills the window with what it changed: the files on the
+  left, every changed line on the right in colour, for its uncommitted edits, for everything since it
+  was made, or for one commit.
+- **Summaries.** A worktree's details can carry a few lines written by Claude Code or Codex: what it
+  is for, what was done, what is still open. On request, or kept up to date by itself when you turn
+  that on.
 - **Base.** The base's health: commit against `baseRef`, build state, locks, the daily task and the
   logs. Refresh the base from here. **Disk space** on the same tab measures what the folders really take
   on the drive, which Explorer cannot show: for each one its own space (what removing it gives back)
