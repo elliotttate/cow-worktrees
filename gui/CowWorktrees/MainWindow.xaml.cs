@@ -146,14 +146,18 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>"worktrees", "base" or "activity"; "base:hook" (refresh, build, disk) also picks what the Base tab's right side shows.</summary>
     private void SelectTab(string name)
     {
-        Tabs.SelectedItem = name.ToLowerInvariant() switch
+        var parts = name.ToLowerInvariant().Split(':', 2);
+        Tabs.SelectedItem = parts[0] switch
         {
             "base" => TabBase,
             "activity" => TabActivity,
             _ => TabWorktrees,
         };
+        if (parts.Length == 2)
+            LogTabs.SelectedItem = parts[1] switch { "hook" => LogHook, "refresh" => LogRefresh, "build" => LogBuild, _ => LogDisk };
     }
 
     private void HealthChip_Click(object sender, RoutedEventArgs e) => SelectTab("base");
@@ -619,6 +623,15 @@ public sealed partial class MainWindow : Window
         CopyText(_watchedOp.CommandLine + "\n" + string.Join("\n", _watchedOp.Lines.Select(l => l.Text)));
     }
 
+    // ---- disk space ----------------------------------------------------------------------------------------------------
+
+    private async void MeasureDisk_Click(object sender, RoutedEventArgs e) => await VM.Disk.MeasureAsync();
+
+    private void StopMeasure_Click(object sender, RoutedEventArgs e) => VM.Disk.Stop();
+
+    private void DiskHeader_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        DiskLayout.Current.SetWidth(e.NewSize.Width - DiskHeader.Padding.Left - DiskHeader.Padding.Right, DiskHeader.ColumnSpacing);
+
     // ---- logs ----------------------------------------------------------------------------------------------------------
 
     private void LogTabs_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
@@ -632,6 +645,10 @@ public sealed partial class MainWindow : Window
     {
         if (LogText == null || LogTabs == null) return;
         var sel = LogTabs.SelectedItem;
+        bool disk = sel == LogDisk;
+        DiskPane.Visibility = Theme.Vis(disk);
+        LogScroller.Visibility = Theme.Vis(!disk);
+        if (disk) return;
         string text = sel == LogRefresh ? VM.RefreshTail : sel == LogBuild ? VM.BuildTail : VM.HookTail;
         if (LogText.Text == text && !_logTabChanged) return;
         bool atEnd = LogScroller.ScrollableHeight - LogScroller.VerticalOffset < 8;
@@ -651,6 +668,17 @@ public sealed partial class MainWindow : Window
         try
         {
             await PrepareUnattendedAsync();
+            if (_options.Measure is { } measure)
+            {
+                // "stop" presses Stop that many milliseconds after the start, to check what a stopped measurement leaves
+                var measuring = VM.Disk.MeasureAsync();
+                if (measure.StopAfterMs is { } ms)
+                {
+                    if (ms > 0) await Task.Delay(ms);
+                    VM.Disk.Stop();
+                }
+                await measuring;
+            }
             if (_options.Tab != null) SelectTab(_options.Tab);
             if (_options.Select != null && VM.FindRow(_options.Select) is { } row)
             {

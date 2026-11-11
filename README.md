@@ -223,7 +223,9 @@ It says "repository" where the scripts and these pages say "pool".
   uncommitted changes, unpushed commits and idle time; dirty ones are highlighted. Create, remove, prune
   and move to copy-on-write from here.
 - **Base.** The base's health: commit against `baseRef`, build state, locks, the daily task and the
-  logs. Refresh the base from here.
+  logs. Refresh the base from here. **Disk space** on the same tab measures what the folders really take
+  on the drive, which Explorer cannot show: for each one its own space (what removing it gives back)
+  against what it shares, and which ones are full copies.
 - **Repository settings.** What is connected (Claude Code, Codex, the daily upkeep) as it really is on
   disk, with a switch and a Repair button for each; the options `setup.ps1` takes; and Remove. A banner
   with **Fix it** appears when a connection has gone missing or points at another copy of the tool.

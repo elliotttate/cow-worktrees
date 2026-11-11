@@ -35,6 +35,7 @@ public sealed class MainViewModel : ObservableObject
     public MainViewModel(DispatcherQueue dispatcher, string? preferredPool = null)
     {
         _dispatcher = dispatcher;
+        Disk = new DiskSpaceViewModel(this, dispatcher);
         Settings = AppSettings.Load();
         _git = new GitService(Settings.MaxParallelGit);
         LoadRegistry(preferredPool ?? Settings.SelectedPool);
@@ -63,6 +64,9 @@ public sealed class MainViewModel : ObservableObject
     }
 
     public AppSettings Settings { get; }
+
+    /// <summary>What really takes the space on the pool's drive (Base tab, Disk space).</summary>
+    public DiskSpaceViewModel Disk { get; }
     public string? EditorPath { get; private set; }
     public string EditorName { get; private set; }
 
@@ -197,6 +201,7 @@ public sealed class MainViewModel : ObservableObject
         HealthBrush = Theme.Neutral;
         HealthUpdated = "";
         LastRefresh = null;
+        Disk.SetPool(_pool is { IsUsable: true } ? _pool : null);
         RaiseSummary();
         Raise(nameof(HookTail), nameof(RefreshTail), nameof(BuildTail), nameof(HealthSummary), nameof(HealthBrush), nameof(HealthUpdated), nameof(StatusText));
     }
@@ -487,6 +492,7 @@ public sealed class MainViewModel : ObservableObject
         {
             SyncRows(entries, pool);
             ApplyView();
+            Disk.Sync();
             await Task.WhenAll(entries.Where(e => !e.Bare).Select(e => ProbeRowAsync(_rows[e.Path], e)));
             if (generation != _generation) return;
             // Every row is complete now: show them in their order, with the counts, without waiting for the rest.
@@ -552,6 +558,7 @@ public sealed class MainViewModel : ObservableObject
         RaiseSummary();
         LastRefresh = DateTime.Now;
         LastDuration = sw.Elapsed;
+        Disk.Sync();   // the rows get the numbers of the last measurement; nothing is measured here
         SetProblem(problems.Count == 0 ? null : string.Join(" · ", problems));
         Raise(nameof(LastRefresh), nameof(LastDuration), nameof(StatusText));
         if (_selected != null && _selected.HasUnpushed) _ = LoadUnpushedLogAsync(_selected);
@@ -932,6 +939,7 @@ public sealed class MainViewModel : ObservableObject
         scriptSkipped = LastScriptSkipped,
         problem = Problem,
         health = HealthItems.Select(h => new { h.Title, h.Value, h.Detail, Severity = h.Severity.ToString() }),
+        diskSpace = Disk.Dump(),
         worktrees = _rows.Values.OrderBy(r => r.Path).Select(r => new
         {
             r.Name,
@@ -957,6 +965,11 @@ public sealed class MainViewModel : ObservableObject
             CowIdleDays = r.Cow?.IdleDays,
             r.WouldPrune,
             PruneKeep = r.PruneKeepReasons,
+            r.OnPoolDrive,
+            DiskOwnBytes = r.Disk?.OwnBytes,
+            DiskSharedBytes = r.Disk?.SharedBytes,
+            DiskDetail = r.DiskDetailVisibility == Visibility.Visible ? r.DetailDisk : null,
+            DiskNote = r.DiskDetailVisibility == Visibility.Visible ? r.DetailDiskNote : null,
         }),
     };
 }

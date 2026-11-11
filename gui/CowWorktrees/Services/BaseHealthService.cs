@@ -203,7 +203,9 @@ public sealed class BaseHealthService
             var drive = new DriveInfo(Path.GetPathRoot(root)!);
             if (drive.IsReady)
             {
-                double freeGb = drive.AvailableFreeSpace / 1e9, totalGb = drive.TotalSize / 1e9;
+                // 1 GB = 1024 MB, as Explorer, the Disk space view and the scripts' fallbackMinFreeGB check count it
+                const double Gb = 1024.0 * 1024 * 1024;
+                double freeGb = drive.AvailableFreeSpace / Gb, totalGb = drive.TotalSize / Gb;
                 double floor = config.FallbackMinFreeGB;
                 bool refs = string.Equals(drive.DriveFormat, "ReFS", StringComparison.OrdinalIgnoreCase);
                 var sev = !refs ? Severity.Error : freeGb < floor ? Severity.Warning : Severity.Ok;

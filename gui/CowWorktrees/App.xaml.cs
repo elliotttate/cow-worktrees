@@ -158,6 +158,12 @@ public sealed class StartupOptions
     public string? UpdateFeed { get; private set; }
     /// <summary>--update-result &lt;out.json&gt;: check the test feed, verify the download, write what would have happened; never starts a file.</summary>
     public string? UpdateResultPath { get; private set; }
+    /// <summary>
+    /// --measure [stop[:ms]]: before the snapshot or dump, measure the disk space of the repository shown (Base tab,
+    /// Disk space) and keep the result as the app does. With "stop", press Stop that many milliseconds after the start.
+    /// </summary>
+    public MeasureOption? Measure { get; private set; }
+    public sealed record MeasureOption(int? StopAfterMs);
 
     public bool Unattended => SnapshotPath != null || DumpPath != null || SelfTestChecksPath != null || RunSetupPath != null || UpdateResultPath != null || ChangesDumpPath != null || SummaryDumpPath != null || FoundDumpPath != null;
 
@@ -195,6 +201,11 @@ public sealed class StartupOptions
                 case "--found-dump": o.FoundDumpPath = Next(); break;
                 case "--wizard-adopt": o.WizardAdopt = true; break;
                 case "--summary-dump": o.SummaryDumpPath = Next(); o.Summarize ??= ""; break;
+                case "--measure":
+                    string how = i + 1 < argv.Length && argv[i + 1].StartsWith("stop", StringComparison.OrdinalIgnoreCase) ? Next()! : "";
+                    var stop = how.Split(':');
+                    o.Measure = new MeasureOption(how.Length == 0 ? null : stop.Length > 1 && int.TryParse(stop[1], out var stopMs) ? Math.Max(0, stopMs) : 0);
+                    break;
                 case "--theme": Next(); break;   // read in App's constructor
                 case "--update-feed": o.UpdateFeed = Next(); break;
                 case "--update-result": o.UpdateResultPath = Next(); o.ExitAfter = true; break;

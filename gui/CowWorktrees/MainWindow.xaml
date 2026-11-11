@@ -613,6 +613,13 @@
                                            Visibility="{x:Bind VM.SelectedWorktree.StatusMoreVisibility, Mode=OneWay, FallbackValue=Collapsed}" />
                             </StackPanel>
 
+                            <!-- disk space: this folder's numbers from the last measurement on the Base tab -->
+                            <StackPanel Spacing="2" Visibility="{x:Bind VM.SelectedWorktree.DiskDetailVisibility, Mode=OneWay, FallbackValue=Collapsed}" AutomationProperties.AutomationId="Details.Disk">
+                                <TextBlock Text="Disk space" Style="{StaticResource SectionLabel}" />
+                                <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailDisk, Mode=OneWay, FallbackValue=''}" TextWrapping="Wrap" Margin="2,0,0,0" />
+                                <TextBlock Text="{x:Bind VM.SelectedWorktree.DetailDiskNote, Mode=OneWay, FallbackValue=''}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Margin="2,0,0,0" />
+                            </StackPanel>
+
                             <!-- copy-on-write, and when this was checked -->
                             <StackPanel Spacing="2" Visibility="{x:Bind VM.SelectedWorktree.CowDetailVisibility, Mode=OneWay, FallbackValue=Collapsed}">
                                 <TextBlock Text="Copy-on-write" Style="{StaticResource SectionLabel}" />
@@ -674,7 +681,8 @@
                 </Grid.RowDefinitions>
                 <Grid Padding="10,6,14,0">
                     <SelectorBar x:Name="LogTabs" SelectionChanged="LogTabs_SelectionChanged">
-                        <SelectorBarItem x:Name="LogHook" Text="hook.log" IsSelected="True" />
+                        <SelectorBarItem x:Name="LogDisk" Text="Disk space" IsSelected="True" />
+                        <SelectorBarItem x:Name="LogHook" Text="hook.log" />
                         <SelectorBarItem x:Name="LogRefresh" Text="refresh.log" />
                         <SelectorBarItem x:Name="LogBuild" Text="base-build.log" />
                     </SelectorBar>
@@ -682,7 +690,160 @@
                         <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xEC50;" FontSize="14" /><TextBlock Text="Open folder" /></StackPanel>
                     </Button>
                 </Grid>
-                <ScrollViewer x:Name="LogScroller" Grid.Row="1" HorizontalScrollBarVisibility="Auto" HorizontalScrollMode="Auto" VerticalScrollBarVisibility="Auto">
+                <!-- Disk space: what really takes the space on the pool's drive (DiskSpaceViewModel) -->
+                <Grid x:Name="DiskPane" Grid.Row="1" Padding="18,10,2,0" RowSpacing="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Grid ColumnSpacing="16" Padding="0,0,16,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="{x:Bind VM.Disk.Headline, Mode=OneWay}" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" AutomationProperties.AutomationId="Disk.Headline" />
+                            <TextBlock Text="{x:Bind VM.Disk.MeasuredText, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+                            <Button Click="MeasureDisk_Click" AutomationProperties.Name="Measure again" AutomationProperties.AutomationId="Disk.MeasureAgain"
+                                    Visibility="{x:Bind VM.Disk.MeasureAgainVisibility, Mode=OneWay}" IsEnabled="{x:Bind VM.Disk.CanMeasure, Mode=OneWay}"
+                                    ToolTipService.ToolTip="Look at every file in these folders again. Nothing is changed.">
+                                <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xEDA2;" FontSize="14" /><TextBlock Text="Measure again" /></StackPanel>
+                            </Button>
+                            <Button Click="StopMeasure_Click" AutomationProperties.Name="Stop measuring" AutomationProperties.AutomationId="Disk.Stop"
+                                    Visibility="{x:Bind VM.Disk.StopVisibility, Mode=OneWay}" ToolTipService.ToolTip="Stop measuring. The numbers of the measurement before stay.">
+                                <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE71A;" FontSize="14" /><TextBlock Text="Stop" /></StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+
+                    <StackPanel Grid.Row="1" Spacing="6" Padding="0,0,16,0">
+                        <StackPanel Spacing="6" Visibility="{x:Bind VM.Disk.ProgressVisibility, Mode=OneWay}">
+                            <ProgressBar IsIndeterminate="{x:Bind VM.Disk.ProgressIndeterminate, Mode=OneWay}" Value="{x:Bind VM.Disk.ProgressValue, Mode=OneWay}" Maximum="100" />
+                            <TextBlock Text="{x:Bind VM.Disk.ProgressText, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <TextBlock Text="{x:Bind VM.Disk.Problem, Mode=OneWay}" Visibility="{x:Bind VM.Disk.ProblemVisibility, Mode=OneWay}" Foreground="{ThemeResource SystemFillColorCautionBrush}" TextWrapping="Wrap" />
+                        <TextBlock Text="{x:Bind VM.Disk.StaleText, Mode=OneWay}" Visibility="{x:Bind VM.Disk.StaleVisibility, Mode=OneWay}" Foreground="{ThemeResource SystemFillColorCautionBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <!-- Nothing measured yet -->
+                    <StackPanel Grid.Row="2" Visibility="{x:Bind VM.Disk.EmptyVisibility, Mode=OneWay}" MaxWidth="560" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="14" Margin="0,0,16,60">
+                        <FontIcon Glyph="&#xEDA2;" FontSize="32" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        <TextBlock Text="{x:Bind VM.Disk.EmptyText, Mode=OneWay}" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <Button Content="Measure" Style="{StaticResource AccentButtonStyle}" MinWidth="130" HorizontalAlignment="Center" Click="MeasureDisk_Click"
+                                Visibility="{x:Bind VM.Disk.FirstMeasureVisibility, Mode=OneWay}" IsEnabled="{x:Bind VM.Disk.CanMeasure, Mode=OneWay}" AutomationProperties.AutomationId="Disk.Measure" />
+                        <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap" TextAlignment="Center"
+                                   Text="It only looks: nothing is changed. A large project can take a minute, and you can stop it at any time." />
+                    </StackPanel>
+
+                    <!-- The last measurement -->
+                    <Grid Grid.Row="2" Visibility="{x:Bind VM.Disk.ResultVisibility, Mode=OneWay}" RowSpacing="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <StackPanel Spacing="10" Padding="0,0,16,0">
+                            <TextBlock Text="{x:Bind VM.Disk.ExplainText, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <StackPanel Spacing="6" Visibility="{x:Bind VM.Disk.DriveVisibility, Mode=OneWay}">
+                                <Grid Height="8" CornerRadius="4" Background="{ThemeResource ControlAltFillColorQuarternaryBrush}" BorderThickness="1" BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="{x:Bind VM.Disk.DriveHeldStar, Mode=OneWay}" MinWidth="3" />
+                                        <ColumnDefinition Width="{x:Bind VM.Disk.DriveOtherStar, Mode=OneWay}" />
+                                        <ColumnDefinition Width="{x:Bind VM.Disk.DriveFreeStar, Mode=OneWay}" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Background="{ThemeResource SystemFillColorAttentionBrush}" />
+                                    <Border Grid.Column="1" Background="{ThemeResource SystemFillColorNeutralBrush}" Opacity="0.6" />
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Spacing="18">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Border Width="10" Height="10" CornerRadius="2" VerticalAlignment="Center" Background="{ThemeResource SystemFillColorAttentionBrush}" />
+                                        <TextBlock Text="{x:Bind VM.Disk.DriveHeldText, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Border Width="10" Height="10" CornerRadius="2" VerticalAlignment="Center" Background="{ThemeResource SystemFillColorNeutralBrush}" Opacity="0.6" />
+                                        <TextBlock Text="{x:Bind VM.Disk.DriveOtherText, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Border Width="10" Height="10" CornerRadius="2" VerticalAlignment="Center" Background="{ThemeResource ControlAltFillColorQuarternaryBrush}" BorderThickness="1" BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}" />
+                                        <TextBlock Text="{x:Bind VM.Disk.DriveFreeText, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Grid x:Name="DiskHeader" Grid.Row="1" Padding="0,10,16,8" ColumnSpacing="12" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" SizeChanged="DiskHeader_SizeChanged">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="{x:Bind vm:DiskLayout.Current.NameColumn, Mode=OneWay}" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="{x:Bind vm:DiskLayout.Current.NumberColumn, Mode=OneWay}" />
+                                <ColumnDefinition Width="{x:Bind vm:DiskLayout.Current.NumberColumn, Mode=OneWay}" />
+                                <ColumnDefinition Width="{x:Bind vm:DiskLayout.Current.NumberColumn, Mode=OneWay}" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Folder" Style="{StaticResource ColumnHeaderText}" />
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" ToolTipService.ToolTip="Space no other folder here uses. Removing the folder gives it back. A new worktree starts with a little: Windows copies the last few kilobytes of every file instead of sharing them.">
+                                <Border Width="10" Height="10" CornerRadius="2" VerticalAlignment="Center" Background="{ThemeResource SystemFillColorAttentionBrush}" />
+                                <TextBlock Text="Own" Style="{StaticResource ColumnHeaderText}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" ToolTipService.ToolTip="Files it still has in common with other folders. They are on the drive once, however many folders have them.">
+                                <Border Width="10" Height="10" CornerRadius="2" VerticalAlignment="Center" Background="{ThemeResource SystemFillColorAttentionBrush}" Opacity="0.3" />
+                                <TextBlock Text="Shared" Style="{StaticResource ColumnHeaderText}" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="4" Text="Folder size" Style="{StaticResource ColumnHeaderText}" HorizontalAlignment="Right" ToolTipService.ToolTip="What Explorer shows for the folder: every file counted in full, shared or not." />
+                        </Grid>
+
+                        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl x:Name="DiskList" ItemsSource="{x:Bind VM.Disk.Folders}" Margin="0,0,0,12">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:DiskFolderViewModel">
+                                        <Grid Padding="0,10,16,10" ColumnSpacing="12" RowSpacing="3" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                              Background="Transparent" Opacity="{x:Bind Opacity}" ToolTipService.ToolTip="{x:Bind Tip}" AutomationProperties.Name="{x:Bind Name}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="{x:Bind vm:DiskLayout.Current.NameColumn, Mode=OneWay}" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="{x:Bind vm:DiskLayout.Current.NumberColumn, Mode=OneWay}" />
+                                                <ColumnDefinition Width="{x:Bind vm:DiskLayout.Current.NumberColumn, Mode=OneWay}" />
+                                                <ColumnDefinition Width="{x:Bind vm:DiskLayout.Current.NumberColumn, Mode=OneWay}" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <Grid HorizontalAlignment="Left" VerticalAlignment="Center" ColumnSpacing="6">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                <Border Grid.Column="1" CornerRadius="8" Padding="6,0,6,1" BorderThickness="1" BorderBrush="{x:Bind KindBrush}" VerticalAlignment="Center">
+                                                    <TextBlock Text="{x:Bind KindLabel}" FontSize="11" Foreground="{x:Bind KindBrush}" />
+                                                </Border>
+                                            </Grid>
+                                            <!-- as long as the folder is large; the solid part is its own -->
+                                            <Grid Grid.Column="1" Height="12" CornerRadius="3" VerticalAlignment="Center" Background="{ThemeResource ControlAltFillColorQuarternaryBrush}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="{x:Bind OwnStar}" MinWidth="{x:Bind OwnMin}" />
+                                                    <ColumnDefinition Width="{x:Bind SharedStar}" />
+                                                    <ColumnDefinition Width="{x:Bind RestStar}" />
+                                                </Grid.ColumnDefinitions>
+                                                <Border Background="{x:Bind OwnBrush}" />
+                                                <Border Grid.Column="1" Background="{x:Bind OwnBrush}" Opacity="0.3" />
+                                            </Grid>
+                                            <TextBlock Grid.Column="2" Text="{x:Bind OwnText}" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="3" Text="{x:Bind SharedText}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="4" Text="{x:Bind SizeText}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Row="1" Grid.ColumnSpan="5" Text="{x:Bind Caption}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{x:Bind CaptionBrush}" TextWrapping="Wrap" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+                </Grid>
+
+                <ScrollViewer x:Name="LogScroller" Grid.Row="1" Visibility="Collapsed" HorizontalScrollBarVisibility="Auto" HorizontalScrollMode="Auto" VerticalScrollBarVisibility="Auto">
                     <TextBlock x:Name="LogText" FontFamily="{StaticResource MonoFont}" FontSize="12" TextWrapping="NoWrap" IsTextSelectionEnabled="True" Padding="18,10,18,18" />
                 </ScrollViewer>
             </Grid>

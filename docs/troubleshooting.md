@@ -172,7 +172,16 @@ repository, commit the files the way the attributes expect: `git add --renormali
 
 **Worktrees take full space**
 `setup.ps1` warns when copies on the volume are not block clones. That needs ReFS and Windows 11 24H2 or
-later. Check a worktree against the base with `python tools\shared_extents.py <root>\base <root>\x 10`.
+later. In the app, Base tab > Disk space > **Measure** shows for every folder how much is its own and how
+much it shares; a worktree that shares nothing with the base is called a full copy there. A worktree made
+with plain `git worktree add` is one, also when it sits inside the pool root. From PowerShell, check a
+worktree against the base with `python tools\shared_extents.py <root>\base <root>\x 10`.
+
+**The drive is fuller than the worktrees should make it**
+Explorer cannot tell: it counts every folder in full. Base tab > Disk space > **Measure** shows what each
+folder really takes. Look for a full copy (see above), for a folder marked "not a worktree" (a leftover
+in the pool root that Git no longer knows; the line says what deleting it would free), and for worktrees
+with a large own space: build output and files changed since the clone are theirs alone.
 
 **"git config --worktree ... failed" / core.checkStat**
 The repository needs `extensions.worktreeConfig`. setup sets it; `git config extensions.worktreeConfig
