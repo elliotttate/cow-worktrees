@@ -22,11 +22,21 @@ branch prefix and build commands come from <root>\cow-config.json.
   4. Relocates MSBuild state (.tlog, .lastbuildstate, .recipe) from the base's path to the new one,
      when the base has a finished build of its commit.
   5. Switches to -Branch / -From. Git rewrites only the paths that differ from the base.
+  6. If git status then lists files that only look modified (see below), makes the index trust them again.
 The new worktree's path is the last line on stdout; progress goes to stderr. Exit 1 on any failure.
+
+Every "must stay clean" check (the base, the fresh clone) fails only on real changes. A file committed as raw
+content while .gitattributes gives it a clean filter (Git LFS "files that should have been pointers", CRLF files
+under `text`) can show as " M" although it is identical to the commit; such a "phantom" is recognised by its raw
+hash equalling the index's blob (Get-CowStatus in CowCommon.ps1), reported once, and not counted: -List shows
+it in the Phantom column of the JSON and leaves it out of Changed. After a clone, and after -RefreshBase moves
+the base, the index is settled so git status is really clean (Invoke-CowSettle).
 
 The base lives at <root>\base, is locked, and must stay clean: only -RefreshBase changes it. Creating
 worktrees shares the base; a refresh waits for them to finish cloning and holds new ones back.
-"remove" uses plain `git worktree remove` (no --force), so a worktree with changes is refused. "prune"
+"remove" uses plain `git worktree remove` (no --force), so a worktree with changes is refused. The one exception:
+when Git refuses a worktree whose only "changes" are phantoms, and nothing is untracked or locked, the script says
+so and retries with --force (the same in "prune"). "prune"
 removes only worktrees idle for -OlderThanDays with nothing to lose: no changed or untracked files, no
 commits that exist nowhere else, not locked. Both delete a <branchPrefix><name> branch only when it
 never gained a commit.
@@ -72,12 +82,21 @@ if (-not $Repo) {
     if (-not $LASTEXITCODE -and $here -and (Get-CowCommonDir $here) -eq (Get-CowCommonDir $Config.repo)) { $Repo = $here }
 }
 
+# Says the phantom note (see Get-CowStatus) the first time it applies in this run, and only then.
+$script:PhantomNoted = $false
+function Write-PhantomNote($status, [string]$where) {
+    if (-not $status.Phantom.Count -or $script:PhantomNoted) { return }
+    $script:PhantomNoted = $true
+    Say "$where`: $(Get-CowPhantomNote $status.Phantom.Count)"
+}
+
 function Assert-BaseClean {
     if (-not (Test-Path -LiteralPath (Join-Path $Base '.git'))) { Fail "no base worktree at $Base (run setup.ps1)" }
     # status also refreshes the base's index, which every new worktree clones.
-    $dirty = @(git -C $Base status --porcelain --untracked-files=no 2>$null)
-    if ($LASTEXITCODE) { Fail "git status failed in the base $Base" }
-    if ($dirty.Count) { Fail "the base $Base has $($dirty.Count) changed paths; it must stay clean:`n$(($dirty | Select-Object -First 10) -join "`n")" }
+    try { $st = Get-CowStatus -Dir $Base } catch { Fail "git status failed in the base $Base" }
+    if ($st.Real.Count) { Fail "the base $Base has $($st.Real.Count) changed paths; it must stay clean:`n$(Format-CowEntries $st.Real)" }
+    Write-PhantomNote $st "the base"
+    $script:BaseStatus = $st
 }
 
 function Resolve-Commit([string]$ref) {
@@ -159,7 +178,8 @@ function Get-CowWorktrees {
         if (-not $p.StartsWith($rootSlash) -or $p -eq $baseSlash) { continue }
         $path = $e.path.Replace('/', '\')
         if (-not (Test-Path -LiteralPath $path)) { continue }
-        $status = @(git -C $path status --porcelain 2>$null)
+        # Phantoms (see Get-CowStatus) are not changes. A status that cannot be read counts as a change: unknown is not clean.
+        try { $st = Get-CowStatus -Dir $path -Untracked normal } catch { $st = $null }
         $start = git -C $path config --worktree --get cow.startCommit 2>$null
         $own = if ($start) { [int](git -C $path rev-list --count "$start..HEAD" 2>$null) } else { $null }
         $unpushed = [int](git -C $path rev-list --count HEAD --not --remotes 2>$null)
@@ -171,8 +191,9 @@ function Get-CowWorktrees {
             Name      = Split-Path -Leaf $path
             Branch    = if ($e.branch) { $e.branch } else { '(detached)' }
             IdleDays  = [math]::Round(((Get-Date) - $lastUsed).TotalDays, 1)
-            Changed   = @($status | Where-Object { $_ -notlike '`?`? *' }).Count
-            Untracked = @($status | Where-Object { $_ -like '`?`? *' }).Count
+            Changed   = if ($st) { @($st.Real | Where-Object { $_.X -ne '?' }).Count } else { 1 }
+            Phantom   = if ($st) { $st.Phantom.Count } else { 0 }
+            Untracked = if ($st) { @($st.Real | Where-Object { $_.X -eq '?' }).Count } else { 0 }
             Commits   = $own
             Unpushed  = $unpushed
             Locked    = [bool]$e.locked
@@ -188,6 +209,32 @@ function Remove-UnusedBranch([string]$path, [string]$branch, [string]$start, [st
         return " and its unused branch $branch"
     }
     return ''
+}
+
+# `git worktree remove` refuses a worktree whose only "changes" are phantoms (see Get-CowStatus). When it
+# refuses for that reason, look at the worktree ourselves: no real change, no untracked file and not locked
+# means nothing of the user's is in it, and only then is --force used. This is the one place that is.
+function Test-WorktreeLocked([string]$path) {
+    $want = $path.Replace('\', '/').ToLowerInvariant(); $current = ''
+    foreach ($line in @(git -C $Repo worktree list --porcelain 2>$null)) {
+        if ($line -like 'worktree *') { $current = $line.Substring(9).ToLowerInvariant() }
+        elseif ($line -like 'locked*' -and $current -eq $want) { return $true }
+    }
+    return $false
+}
+function Remove-CowWorktree([string]$path) {
+    $out = GitOut -C $Repo worktree remove $path
+    $ok = ($LASTEXITCODE -eq 0)
+    if (-not $ok -and ($out -join ' ') -match 'modified or untracked') {
+        try { $st = Get-CowStatus -Dir $path -Untracked normal } catch { $st = $null }
+        if ($st -and $st.Phantom.Count -and -not $st.Real.Count -and -not (Test-WorktreeLocked $path)) {
+            Say "git refused $path because of $($st.Phantom.Count) phantom changes; nothing real is changed or untracked there, so removing it with --force"
+            Write-PhantomNote $st (Split-Path -Leaf $path)
+            $out = GitOut -C $Repo worktree remove --force $path
+            $ok = ($LASTEXITCODE -eq 0)
+        }
+    }
+    return [pscustomobject]@{ Ok = $ok; Out = $out }
 }
 
 if ($List) {
@@ -214,8 +261,8 @@ if ($Prune) {
         if ($DryRun) { Say "would remove $($w.Name)"; continue }
         $tip = git -C $w.Path rev-parse HEAD 2>$null
         $branch = if ($w.Branch -ne '(detached)') { $w.Branch } else { '' }
-        $out = GitOut -C $Repo worktree remove $w.Path
-        if ($LASTEXITCODE) { Say "could not remove $($w.Name): $($out -join ' ')"; continue }
+        $r = Remove-CowWorktree $w.Path
+        if (-not $r.Ok) { Say "could not remove $($w.Name): $($r.Out -join ' ')"; continue }
         Say "removed $($w.Name)$(Remove-UnusedBranch $w.Path $branch $w.Start $tip)"
     }
     if (-not $all.Count) { Say "no worktrees under $Root" }
@@ -241,6 +288,11 @@ if ($RefreshBase) {
             $out = GitOut -C $Base switch --quiet --detach $sha
             if ($LASTEXITCODE) { Fail "could not move the base to $target`n$($out -join "`n")" }
             Assert-BaseClean
+            if ($script:BaseStatus.Phantom.Count) {
+                # The base moved, so its index was just rewritten: settle the false alarms (see Invoke-CowSettle).
+                $after = Invoke-CowSettle -Dir $Base -Status $script:BaseStatus
+                if ($after) { Say "settled the base's index: $($after.Phantom.Count) of the phantom changes left" } else { Say 'could not settle the base''s phantom changes; they stay' }
+            }
             Say "base moved from $($before.Substring(0, 9)) to $(git -C $Base log -1 --format='%h %s')"
         } else {
             Say "base already at $target ($($sha.Substring(0, 9)))"
@@ -280,8 +332,8 @@ if ($Remove) {
     $tip = git -C $Path rev-parse HEAD 2>$null
     $start = git -C $Path config --worktree --get cow.startCommit 2>$null
     $branch = git -C $Path symbolic-ref --quiet --short HEAD 2>$null
-    $out = GitOut -C $Repo worktree remove $Path
-    if ($LASTEXITCODE) { Fail "git worktree remove refused $Path (uncommitted changes, untracked files, or locked?)`n$($out -join "`n")" }
+    $r = Remove-CowWorktree $Path
+    if (-not $r.Ok) { Fail "git worktree remove refused $Path (uncommitted changes, untracked files, or locked?)`n$($r.Out -join "`n")" }
     Say "removed $Path$(Remove-UnusedBranch $Path $branch $start $tip)"
     exit 0
 }
@@ -342,9 +394,10 @@ try {
 
 git -C $Path config --worktree core.checkStat minimal
 if ($LASTEXITCODE) { Undo 'could not set core.checkStat for the new worktree (is extensions.worktreeConfig on? setup.ps1 sets it)' }
-$dirty = @(git -C $Path status --porcelain --untracked-files=no)
-if ($dirty.Count) { Undo "the clone does not match the base commit ($($dirty.Count) changed paths); is the base clean?" }
-Say 'cloned the index; git status is clean'
+try { $st = Get-CowStatus -Dir $Path } catch { Undo "git status failed in the clone: $($_.Exception.Message)" }
+if ($st.Real.Count) { Undo "the clone does not match the base commit ($($st.Real.Count) changed paths); is the base clean?`n$(Format-CowEntries $st.Real)" }
+Write-PhantomNote $st 'the clone'
+Say "cloned the index; git status shows no $(if ($st.Phantom.Count) { 'real ' })changes"
 
 # Build state written in the base names the base's path; point it at this worktree. Only when the base's
 # build of this commit was complete before and after the copy: a clone taken mid-build builds in full.
@@ -365,10 +418,15 @@ elseif ($targetSha -ne $baseHead) { $out = GitOut -C $Path switch --quiet --deta
 else { $out = @() }
 if ($LASTEXITCODE) { Fail "worktree $Path made, but switching to $(if ($Branch) { $Branch } else { $targetSha }) failed`n$($out -join "`n")" }
 
-$dirty = @(git -C $Path status --porcelain --untracked-files=no)
-if ($dirty.Count) { Fail "worktree $Path made, but it shows $($dirty.Count) changed paths after the switch" }
+try { $st = Get-CowStatus -Dir $Path } catch { Fail "worktree $Path made, but git status failed in it: $($_.Exception.Message)" }
+if ($st.Real.Count) { Fail "worktree $Path made, but it shows $($st.Real.Count) changed paths after the switch`n$(Format-CowEntries $st.Real)" }
+Write-PhantomNote $st 'the new worktree'
 # Where this worktree started, so a cleanup can tell whether its branch gained commits.
 git -C $Path config --worktree cow.startCommit (git -C $Path rev-parse HEAD)
+if ($st.Phantom.Count) {
+    $after = Invoke-CowSettle -Dir $Path -Status $st
+    if ($after) { $st = $after; Say "settled the index: $($after.Phantom.Count) of the phantom changes left" } else { Say 'could not settle the phantom changes; they stay' }
+}
 $changed = @(git -C $Path diff --name-only $baseHead HEAD).Count
-Say "on $(git -C $Path log -1 --format='%h %s' | ForEach-Object { $_.Substring(0, [Math]::Min(70, $_.Length)) }) ($changed paths written past the base); clean"
+Say "on $(git -C $Path log -1 --format='%h %s' | ForEach-Object { $_.Substring(0, [Math]::Min(70, $_.Length)) }) ($changed paths written past the base); $(if ($st.Phantom.Count) { 'no real changes' } else { 'clean' })"
 Write-Output $Path

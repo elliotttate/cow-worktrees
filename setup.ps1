@@ -116,8 +116,9 @@ if ($registered) {
     Note "done in $([math]::Round($clock.Elapsed.TotalMinutes, 1)) min"
 }
 git -C $main worktree lock --reason "cow-worktrees base for pool '$Name': keep clean, change only with cow_worktree.ps1 -RefreshBase" $base 2>$null
-$dirty = @(git -C $base status --porcelain --untracked-files=no)
-if ($dirty.Count) { Fail "the base $base has $($dirty.Count) changed files; it must be clean" }
+try { $st = Get-CowStatus -Dir $base } catch { Fail "git status failed in the base $base" }
+if ($st.Real.Count) { Fail "the base $base has $($st.Real.Count) changed files; it must be clean:`n$(Format-CowEntries $st.Real)" }
+if ($st.Phantom.Count) { Note (Get-CowPhantomNote $st.Phantom.Count) }
 
 # ---- 4. config + registry ------------------------------------------------------------------------------
 Step 'Pool config'
@@ -193,8 +194,8 @@ if (-not $NoClaude) {
     $checkouts = @(git -C $main worktree list --porcelain | Where-Object { $_ -like 'worktree *' } | ForEach-Object { ConvertTo-CowFullPath $_.Substring(9) } |
         Where-Object { $_ -eq $base -or -not $_.StartsWith($Root + '\', [StringComparison]::OrdinalIgnoreCase) } | Where-Object { Test-Path -LiteralPath $_ })
     foreach ($c in $checkouts) { Set-ClaudeHooks $c }
-    $after = @(git -C $base status --porcelain --untracked-files=no)
-    if ($after.Count) { Fail "writing hooks into the base changed tracked files; check $base" }
+    try { $st = Get-CowStatus -Dir $base } catch { Fail "git status failed in the base $base" }
+    if ($st.Real.Count) { Fail "writing hooks into the base changed tracked files; check $base`n$(Format-CowEntries $st.Real)" }
     Note 'Claude Code reads new settings files when a session starts: restart open sessions.'
 }
 

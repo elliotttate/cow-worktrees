@@ -47,8 +47,10 @@ try {
         & powershell.exe -NoProfile -Command $command 2>&1 | ForEach-Object { "$_" } | Add-Content -LiteralPath $log
         if ($LASTEXITCODE) { Log "build failed ($LASTEXITCODE): $command"; exit 1 }
     }
-    $dirty = @(git -C $Base status --porcelain --untracked-files=no)
-    if ($dirty.Count) { Log "the build changed $($dirty.Count) tracked files in the base:`n$(($dirty | Select-Object -First 10) -join "`n")"; exit 1 }
+    # Files that only look changed to git status (see Get-CowStatus) are not changes the build made.
+    try { $st = Get-CowStatus -Dir $Base } catch { Log "git status failed in the base: $($_.Exception.Message)"; exit 1 }
+    if ($st.Real.Count) { Log "the build changed $($st.Real.Count) tracked files in the base:`n$(Format-CowEntries $st.Real)"; exit 1 }
+    if ($st.Phantom.Count) { Log (Get-CowPhantomNote $st.Phantom.Count) }
     # The build-state files clones must relocate, so each clone reads exactly these instead of searching.
     & (Join-Path $PSScriptRoot 'relocate_build.ps1') -From $Base -To $Base -ListOnly |
         Set-Content -LiteralPath (Join-Path $Root 'base-build-state.txt')

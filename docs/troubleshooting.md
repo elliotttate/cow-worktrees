@@ -8,6 +8,15 @@ Something edited, built into or ran in `<root>\base`, perhaps a debugger opening
 Look with `git -C <root>\base status`, then put the files back (`git -C <root>\base checkout -- <files>`)
 or re-run setup after moving the base away. Build output is fine as long as Git ignores it.
 
+**Files show as modified straight after a clone or migrate (`git status` lists files you never touched)**
+The repository has files committed as raw content that `.gitattributes` sends through a clean filter (Git
+LFS "files that should have been pointers", or CRLF files under `text`). Git re-hashes them through the
+filter, gets different bytes, and reports ` M`, although each file is identical to the commit; a plain
+`git worktree add` does the same when the timing matches. The scripts recognise these entries ("N files only
+look changed to git status"), do not count them as changes and settle them after a clone. To cure it in the
+repository, commit the files the way the attributes expect: `git add --renormalize .` (then commit), or
+`git lfs migrate import --no-rewrite <files>` for LFS files.
+
 **Worktrees take full space**
 `setup.ps1` warns when copies on the volume are not block clones. That needs ReFS and Windows 11 24H2 or
 later. Check a worktree against the base with `python tools\shared_extents.py <root>\base <root>\x 10`.
@@ -37,6 +46,14 @@ the daily task would remove, and `-Prune -OlderThanDays 0` to clear clean, idle 
 **`migrate_worktree.ps1` says something still has the folder open**
 A terminal, editor, file explorer or Claude/Codex session is inside the old worktree. Close it and run
 the same command again: the verified copy is reused and nothing has been removed.
+
+**A `migrate_worktree.ps1` run stopped halfway**
+Run the same command again. A clone it left in the pool is recognised by what it recorded (`cow.migrateFrom`
+and `cow.migrateState` in the clone's config) and finished: the copy is redone if it had not completed,
+then everything is verified again; the old worktree is only retired with `-RemoveOld`, after the checks. A
+clone from a run that stopped right after the switch (no record yet, detached, nothing changed in it) is
+finished the same way. Anything else under that name is refused with "already exists"; if it is a leftover
+you do not need, `git -C <repo> worktree remove --force <root>\<name>` discards it.
 
 **The guard blocks a command that only mentions `git worktree add`**
 Quoted text is ignored, but unquoted mentions count. Put `COW_ALLOW=1` in the command.
