@@ -1,8 +1,15 @@
 # Claude Code
 
-`setup.ps1` merges three hooks into `.claude\settings.local.json` of every checkout of the repository,
-the base included. Clones copy the base's file, so they get the hooks too. Other settings and hooks in
-those files are kept. `uninstall.ps1` removes only these entries.
+Setup (the app's walkthrough, or `setup.ps1`) merges three hooks into `.claude\settings.local.json` of
+every checkout of the repository that is on disk: the main checkout, its other worktrees, the base, and
+the worktrees already in the pool. New clones copy the base's file, so they get the hooks too. Other
+settings and hooks in those files are kept, and a file that already has the hooks is not written again.
+`uninstall.ps1` removes only these entries.
+
+`settings.local.json` is Claude Code's file, so it is written back the way it was found: in the encoding
+it has, with or without a byte order mark, and with text outside ASCII intact. A new one is UTF-8 without
+a byte order mark. A file that is not a JSON object is left alone, with a warning. (1.0.x read such a
+file as ANSI and wrote it back as UTF-8 with a byte order mark, which damaged characters outside ASCII.)
 
 ```json
 {
@@ -23,7 +30,40 @@ those files are kept. `uninstall.ps1` removes only these entries.
 }
 ```
 
+The script paths are those of the folder setup ran from: `C:\Tools\cow-worktrees` in the examples,
+`%LOCALAPPDATA%\Programs\cow-worktrees` (written out in full) for a copy put there by the installer. The
+entries are the same as 1.0.0 wrote, so a setup made by one version can be updated or removed by another.
+
 Claude Code reads settings files when a session starts, so restart open sessions after setup.
+
+## Switching it on and off
+
+`setup.ps1 -NoClaude` means "without the hooks":
+
+- on a first run they are not added;
+- on a later run they are also **removed**, from every checkout of the repository, the base and the
+  pool's worktrees included. Before 1.1.0 a later run with `-NoClaude` left hooks that were there alone.
+
+Running setup again without the switch puts them back in every checkout, the worktrees that are already
+in the pool included. The choice is recorded in `cow-config.json` as `integrations.claude` (see
+[configuration.md](configuration.md)).
+
+In the app:
+
+- The walkthrough's "Connect your AI tools" screen has a Claude Code switch. It starts on when Claude Code
+  was found on the PC (`claude` on `PATH`, `~\.local\bin\claude.exe`, or a `~\.claude` folder), and "What
+  exactly gets added" names the file.
+- Repository settings has a Claude Code row that shows what is in the files now: **Connected** (the hooks
+  are in every checkout of the repository that is on disk, the base and the pool's worktrees included,
+  and they run this copy's scripts), **Not connected**, connected in some of those folders (the ones
+  without are named), or **Connected to another copy of the tool** (the hooks run scripts from another
+  folder). Turn the switch off or on and press Apply: that runs `setup.ps1` with or without `-NoClaude`.
+- **Repair**, on a row that is half there or points elsewhere, runs setup again with the saved choices,
+  which writes the hooks into every checkout and points them at this copy.
+- A banner in the main window, "This repository's connections need attention", appears when Claude Code
+  should be connected and is not, when the hooks are missing from the project's main folder or the base,
+  or when they point at another copy. **Fix it** does what Repair does. A checkout made after setup has
+  no hooks until setup runs again; the settings page shows that, without a banner.
 
 ## WorktreeCreate
 
@@ -73,7 +113,7 @@ pool, and tells Claude to use `cow_worktree.ps1`. Details:
 
 Every hook call is written to `<root>\hook.log`: the event, the working directory, the input JSON, and
 the names of `CLAUDE*` environment variables (values only for non-secret ones). It is the first place to
-look when a worktree turns up somewhere unexpected.
+look when a worktree turns up somewhere unexpected. The app shows its end on the Base tab.
 
 ## Testing the hooks
 

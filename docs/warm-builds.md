@@ -13,6 +13,16 @@ one. With a `build` section in `cow-config.json`, the base keeps a build, and ev
 .\scripts\cow_worktree.ps1 -Root E:\cow\MyGame -RefreshBase -Build     # first build; or pass -BuildNow to setup
 ```
 
+In the app this is "Faster first builds": a screen of the walkthrough (off unless you turn it on; when
+the project folder holds a `.sln` it fills in an MSBuild command for it) and a section of Repository
+settings. Set up from the walkthrough, the base is first built by the next daily task, or when you press
+Refresh base.
+
+To change it later, run setup again with only the part that changes: `-BuildCommand`, `-BuildPrepare` and
+`-BuildConfigs` each replace their own part of the `build` section and leave the other two, an empty
+`-BuildPrepare ''` or `-BuildConfigs ''` clears that part, and `-NoBuild` removes the section, after
+which clones start cold.
+
 `build_base.ps1` runs each `prepare` line once, then `command` once per configuration with `{config}`
 filled in. Each line runs through `powershell.exe -NoProfile -Command`, with the base as the working
 directory. On success it writes:
