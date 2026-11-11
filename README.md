@@ -66,7 +66,7 @@ any checkout. More detail: [docs/how-it-works.md](docs/how-it-works.md).
 5. **Watch them.** Run `app\CowWorktrees.exe` from the extracted folder. It needs no install.
 
 To check a machine before using it on a real repository, run `tests\e2e.ps1`. It sets up a throwaway
-repository and pool, runs every feature, and removes it all again; 31 checks, under a minute.
+repository and pool, runs every feature, and removes it all again; 59 checks, about two minutes.
 
 ## Using it from Claude Code
 
