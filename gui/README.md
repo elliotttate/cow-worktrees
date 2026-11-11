@@ -476,7 +476,9 @@ every hidden or unattended run. A check that fails (no network, GitHub unreachab
 
 The updater is tested against a stand-in release served from the same PC
 (`gui\tests\update_selftest.ps1`), where the downloaded file is verified but never started. Updating from
-a real GitHub release has not yet been run: 1.1.0 is the first release with an installer.
+a real GitHub release has been run once by hand, from 1.1.0 to 1.2.0 with the Update button: the check,
+the download, the checksum, the silent install and the restart worked, and the repositories, their
+Claude Code hooks and their daily tasks were as before.
 
 ## App settings and About
 

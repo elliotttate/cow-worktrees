@@ -52,8 +52,8 @@ or use the release page.
 - "Something is still running": updating replaces the scripts, so it does not start while a job or a
   refresh of a base runs. Try again when they have finished.
 
-Updating from a real GitHub release has not yet been run (1.1.0 is the first release with an installer);
-the updater is tested against a stand-in release on the same PC.
+Updating from a real GitHub release has been run once by hand (1.1.0 to 1.2.0, with the Update button);
+otherwise the updater is tested against a stand-in release on the same PC.
 
 **I moved the cow-worktrees folder (or installed it after using a zip copy)**
 The Claude Code hooks, the Codex section and the daily task hold the full path of the scripts, so after a
